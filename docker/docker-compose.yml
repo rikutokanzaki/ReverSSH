@@ -1,0 +1,38 @@
+services:
+  ####################################
+  ### Dispatcher
+  ####################################
+  reverssh:
+    container_name: reverssh
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      - cowrie1
+      - cowrie2
+    ports:
+      - "22:22"
+    env_file:
+      - ../.env
+    restart: always
+
+  ####################################
+  ### Layers
+  ####################################
+
+  ### SSH ###
+  cowrie1:
+    container_name: cowrie1
+    image: cowrie/cowrie
+    environment:
+      - PYTHONUNBUFFERED=1
+      - COWRIE_TTYLOG_ENABLED=yes
+    restart: always
+
+  cowrie2:
+    container_name: cowrie2
+    image: cowrie/cowrie
+    environment:
+      - PYTHONUNBUFFERED=1
+      - COWRIE_TTYLOG_ENABLED=yes
+    restart: always

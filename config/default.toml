@@ -1,0 +1,28 @@
+[server]
+name = "svr04"
+listen_addr = "0.0.0.0:22"
+host_key_path = "/config/host_key"
+history_size = 1000
+
+[auth]
+authorized_keys_dir = "/config/authorized_keys"
+accept_any = false
+user_db_path = "/config/user.txt"
+
+[[backends]]
+name = "cowrie1"
+hostname = "cowrie1"
+port = 2222
+username = "client_username"
+password = "client_password"
+auth_type = "password"
+default = true
+
+[[backends]]
+name = "cowrie2"
+hostname = "cowrie2"
+port = 2222
+username = "client_username"
+password = "client_password"
+auth_type = "password"
+default = false
