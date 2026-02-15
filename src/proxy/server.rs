@@ -226,6 +226,7 @@ impl server::Handler for ProxyServer {
                 session.exit_status_request(channel, 1);
                 session.eof(channel);
                 session.close(channel);
+
                 return Ok((self, session));
             }
         };
@@ -326,11 +327,13 @@ impl server::Handler for ProxyServer {
                 }
             } else {
                 let username = self.get_username();
+
                 let cwd = if let Some(ref session_id) = self.session_id {
                     self.get_session_cwd(session_id).await
                 } else {
                     None
                 };
+
                 let buf = self.reader.buffer();
                 let cursor = self.reader.cursor();
                 self.renderer.redraw_line(
@@ -513,6 +516,7 @@ impl ProxyServer {
             Err(e) => {
                 error!("Failed to establish backend connection: {:?}", e);
                 self.send_error_and_prompt(channel, session, "Failed to connect to backend\r\n");
+
                 return;
             }
         };
@@ -664,6 +668,7 @@ impl ProxyServer {
                 session.exit_status_request(channel, 1);
                 session.eof(channel);
                 session.close(channel);
+
                 return;
             }
         };
