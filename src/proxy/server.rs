@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use log::{error, info, warn};
 use russh::server::{self, Auth, Msg, Session};
-use russh::{Channel, ChannelId};
+use russh::{Channel, ChannelId, MethodSet};
 
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
@@ -71,7 +71,7 @@ impl server::Handler for ProxyServer {
         Ok((
             self,
             Auth::Reject {
-                proceed_with_methods: None,
+                proceed_with_methods: Some(MethodSet::PASSWORD),
             },
         ))
     }
@@ -84,7 +84,7 @@ impl server::Handler for ProxyServer {
         Ok((
             self,
             Auth::Reject {
-                proceed_with_methods: None,
+                proceed_with_methods: Some(MethodSet::PASSWORD),
             },
         ))
     }
@@ -97,7 +97,7 @@ impl server::Handler for ProxyServer {
         Ok((
             self,
             Auth::Reject {
-                proceed_with_methods: None,
+                proceed_with_methods: Some(MethodSet::PASSWORD),
             },
         ))
     }
@@ -117,7 +117,7 @@ impl server::Handler for ProxyServer {
         Ok((
             self,
             Auth::Reject {
-                proceed_with_methods: None,
+                proceed_with_methods: Some(MethodSet::PASSWORD),
             },
         ))
     }
