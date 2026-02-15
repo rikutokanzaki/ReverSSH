@@ -1,4 +1,5 @@
 use anyhow::Result;
+use russh::SshId;
 use russh::server::Config as SshConfig;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,11 +36,15 @@ async fn main() -> Result<()> {
         ],
     });
 
-    let ssh_config = SshConfig {
+    let mut ssh_config = SshConfig {
         inactivity_timeout: Some(Duration::from_secs(3600)),
         keys: vec![host_key],
         ..Default::default()
     };
+
+    if let Some(ref version) = config.server.ssh_version {
+        ssh_config.server_id = SshId::Standard(version.clone());
+    }
 
     let config_arc = Arc::new(config);
     let listen_addr = config_arc.server.listen_addr;

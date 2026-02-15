@@ -27,6 +27,9 @@ pub struct ServerConfig {
 
     #[serde(default = "default_history_size")]
     pub history_size: usize,
+
+    #[serde(default)]
+    pub ssh_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
