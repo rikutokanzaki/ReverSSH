@@ -29,6 +29,7 @@ pub struct ProxyServer {
     username: Option<String>,
     password: Option<String>,
     shell_active: bool,
+    exec_mode: bool,
     reader: LineReader,
     renderer: Renderer,
 }
@@ -55,6 +56,7 @@ impl ProxyServer {
             username: None,
             password: None,
             shell_active: false,
+            exec_mode: false,
             reader: LineReader::new(config.server.history_size),
             renderer,
         }
@@ -175,6 +177,71 @@ impl server::Handler for ProxyServer {
             .send_data(channel, &mut session, motd.as_bytes());
 
         self.send_prompt_with_cwd(channel, &mut session).await;
+
+        Ok((self, session))
+    }
+
+    async fn exec_request(
+        mut self,
+        channel: ChannelId,
+        data: &[u8],
+        mut session: Session,
+    ) -> Result<(Self, Session), Self::Error> {
+        self.exec_mode = true;
+
+        let command = String::from_utf8_lossy(data).to_string();
+        info!("Exec request: {}", command);
+
+        let (username, password) = match (&self.username, &self.password) {
+            (Some(u), Some(p)) => (u.clone(), p.clone()),
+            _ => {
+                error!("No credentials available for exec request");
+                let error_msg = "Authentication required\r\n";
+                self.renderer
+                    .send_data(channel, &mut session, error_msg.as_bytes());
+                session.exit_status_request(channel, 1);
+                session.eof(channel);
+                session.close(channel);
+                return Ok((self, session));
+            }
+        };
+
+        let session_id = match self
+            .session_manager
+            .create_session(username.clone(), password.clone(), channel)
+            .await
+        {
+            Ok(session_id) => {
+                info!("Exec session {} created for user {}", session_id, username);
+                session_id
+            }
+            Err(e) => {
+                error!(
+                    "Failed to create exec session for user {}: {:?}",
+                    username, e
+                );
+                let error_msg = "Failed to create session\r\n";
+                self.renderer
+                    .send_data(channel, &mut session, error_msg.as_bytes());
+                session.exit_status_request(channel, 1);
+                session.eof(channel);
+                session.close(channel);
+                return Ok((self, session));
+            }
+        };
+
+        self.session_id = Some(session_id.clone());
+
+        if let Err(e) = self
+            .session_manager
+            .push_command(&session_id, command.clone())
+            .await
+        {
+            warn!("Failed to record command: {:?}", e);
+        }
+
+        self.run_argument_command(channel, &mut session, &session_id, &command)
+            .await;
 
         Ok((self, session))
     }
@@ -324,6 +391,7 @@ impl ProxyServer {
     async fn get_session_cwd(&self, session_id: &str) -> Option<String> {
         if let Some(session_lock) = self.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
+
             return session_data
                 .terminal_state
                 .cwd
@@ -394,6 +462,7 @@ impl ProxyServer {
             if let Ok(backend) = self.session_manager.get_backend(session_id).await {
                 let _ = backend.close().await;
             }
+
             if let Err(e) = self.session_manager.remove_session(session_id).await {
                 error!("Failed to remove session {}: {:?}", session_id, e);
             }
@@ -413,10 +482,12 @@ impl ProxyServer {
     ) {
         if let Some(session_lock) = self.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
+
             if let Some(ref cmd_info) = session_data.terminal_state.last_cmd {
                 if let Some(target_backend) = self.detector.detect(cmd_info) {
                     drop(session_data);
                     info!("Detected attack pattern, migrating to: {}", target_backend);
+
                     if let Err(e) = self
                         .perform_migration(session_id, &target_backend, channel, session)
                         .await
@@ -504,6 +575,7 @@ impl ProxyServer {
 
         if let Some(cwd) = current_cwd {
             let cd_cmd = format!("cd {}", cwd.display());
+
             if let Ok((_, new_cwd)) = new_backend.execute_command(&cd_cmd).await {
                 if let Some(verified_cwd) = new_cwd {
                     let _ = self.update_session_cwd(session_id, &verified_cwd).await;
@@ -574,6 +646,74 @@ impl ProxyServer {
             }
         }
     }
+
+    async fn run_argument_command(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+        session_id: &str,
+        command: &str,
+    ) {
+        let backend = match self.ensure_backend_connected(session_id).await {
+            Ok(backend) => backend,
+            Err(e) => {
+                error!("Failed to establish backend connection: {:?}", e);
+                let error_msg = "Failed to connect to backend\r\n";
+                self.renderer
+                    .send_data(channel, session, error_msg.as_bytes());
+                session.exit_status_request(channel, 1);
+                session.eof(channel);
+                session.close(channel);
+                return;
+            }
+        };
+
+        match backend.execute_command(command).await {
+            Ok((output, cwd)) => {
+                self.renderer.send_data(channel, session, &output);
+
+                if let Some(new_cwd) = cwd {
+                    if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
+                        warn!("Failed to update CWD: {:?}", e);
+                    }
+                }
+
+                if let Some(session_lock) = self.session_manager.get_session(session_id).await {
+                    let session_data = session_lock.read().await;
+
+                    if let Some(ref cmd_info) = session_data.terminal_state.last_cmd {
+                        if let Some(target_backend) = self.detector.detect(cmd_info) {
+                            drop(session_data);
+                            info!(
+                                "Detected attack pattern in exec mode, migrating to: {}",
+                                target_backend
+                            );
+
+                            if let Err(e) = self
+                                .perform_migration(session_id, &target_backend, channel, session)
+                                .await
+                            {
+                                error!("Migration failed: {:?}", e);
+                            }
+                        }
+                    }
+                }
+
+                session.exit_status_request(channel, 0);
+                session.eof(channel);
+                session.close(channel);
+            }
+            Err(e) => {
+                error!("Command execution failed: {:?}", e);
+                let error_msg = "Command execution failed\r\n";
+                self.renderer
+                    .send_data(channel, session, error_msg.as_bytes());
+                session.exit_status_request(channel, 1);
+                session.eof(channel);
+                session.close(channel);
+            }
+        }
+    }
 }
 
 pub struct ProxyServerFactory {
@@ -601,6 +741,7 @@ impl ProxyServerFactory {
             Ok(set) => allowed_users = set,
             Err(err) => {
                 let fallback = std::path::PathBuf::from("config/user.txt");
+
                 match load_allowed_usernames(&fallback) {
                     Ok(set) => allowed_users = set,
                     Err(err2) => {
