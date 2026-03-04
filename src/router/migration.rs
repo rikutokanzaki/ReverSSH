@@ -8,13 +8,31 @@ pub trait Detector: Send + Sync {
 }
 
 pub struct KeywordDetector {
-    pub keyword: String,
+    pub keywords: Vec<String>,
     pub target: String,
+}
+
+impl KeywordDetector {
+    pub fn new(keywords: &[&str], target: &str) -> Self {
+        Self {
+            keywords: keywords.iter().map(|s| s.to_string()).collect(),
+            target: target.to_string(),
+        }
+    }
 }
 
 pub struct RegexDetector {
     pub re: Regex,
     pub target: String,
+}
+
+impl RegexDetector {
+    pub fn new(pattern: &str, target: &str) -> Self {
+        Self {
+            re: Regex::new(pattern).expect("Invalid regex pattern"),
+            target: target.to_string(),
+        }
+    }
 }
 
 pub struct CompositeDetector {
@@ -23,7 +41,11 @@ pub struct CompositeDetector {
 
 impl Detector for KeywordDetector {
     fn detect(&self, cmd_info: &CmdInfo) -> Option<String> {
-        if cmd_info.cmd.contains(&self.keyword) {
+        if self
+            .keywords
+            .iter()
+            .any(|kw| cmd_info.cmd.contains(kw.as_str()))
+        {
             Some(self.target.clone())
         } else {
             None
