@@ -181,14 +181,14 @@ impl BackendConnection {
 
         let cwd = Self::extract_cwd_from_output(&output);
 
-        let cleaned = Self::clean_output(&output, cmd);
-        Ok((cleaned, cwd))
+        let command_output = Self::clean_output(&output, cmd);
+        Ok((command_output, cwd))
     }
 
     fn has_prompt(data: &[u8]) -> bool {
         if let Ok(text) = std::str::from_utf8(data) {
-            let cleaned = ANSI_ESCAPE_RE.replace_all(&text, "");
-            let lines: Vec<&str> = cleaned.lines().collect();
+            let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
+            let lines: Vec<&str> = ansi_stripped.lines().collect();
 
             if let Some(last_line) = lines.last() {
                 return last_line.ends_with("$ ") || last_line.ends_with("# ");
@@ -200,8 +200,8 @@ impl BackendConnection {
     fn extract_cwd_from_output(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
 
-        let cleaned = ANSI_ESCAPE_RE.replace_all(&text, "");
-        let lines: Vec<&str> = cleaned.lines().collect();
+        let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
+        let lines: Vec<&str> = ansi_stripped.lines().collect();
 
         if let Some(last_line) = lines.last() {
             if let Some(captures) = PROMPT_CWD_RE.captures(last_line) {
@@ -217,9 +217,9 @@ impl BackendConnection {
     fn clean_output(data: &[u8], cmd: &str) -> Vec<u8> {
         let text = String::from_utf8_lossy(data);
 
-        let cleaned = ANSI_ESCAPE_RE.replace_all(&text, "");
+        let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
 
-        let mut lines: Vec<&str> = cleaned.lines().collect();
+        let mut lines: Vec<&str> = ansi_stripped.lines().collect();
 
         if !lines.is_empty() && lines[0].trim().ends_with(cmd) {
             lines.remove(0);
@@ -227,6 +227,7 @@ impl BackendConnection {
 
         if !lines.is_empty() {
             let last = lines.last().unwrap();
+
             if last.ends_with("$ ") || last.ends_with("# ") {
                 lines.pop();
             }
@@ -307,13 +308,16 @@ impl BackendConnection {
     pub fn extract_completed_line(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
 
-        let cleaned = ANSI_ESCAPE_RE.replace_all(&text, "");
+        let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
 
-        if cleaned.trim().is_empty() {
+        if ansi_stripped.trim().is_empty() {
             return None;
         }
 
-        let lines: Vec<&str> = cleaned.lines().filter(|l| !l.trim().is_empty()).collect();
+        let lines: Vec<&str> = ansi_stripped
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
 
         if let Some(last_line) = lines.last() {
             if let Some(prompt_end) = last_line.find(|c| c == '$' || c == '#') {
