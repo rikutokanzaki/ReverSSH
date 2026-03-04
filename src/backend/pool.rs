@@ -32,8 +32,8 @@ impl BackendPool {
     pub async fn create_connection(
         &self,
         backend_name: Option<&str>,
-        username: &str,
-        password: &str,
+        username: Option<&str>,
+        password: Option<&str>,
     ) -> Result<(Arc<BackendConnection>, Option<String>)> {
         let backends = self.backends.read().await;
 
@@ -43,7 +43,13 @@ impl BackendPool {
 
         let config = backends.get(name).context("Backend not found")?.clone();
 
-        let conn = BackendConnection::connect(config, username, password).await?;
+        let config_username = config.username.as_deref().unwrap_or("unknown").to_string();
+        let config_password = config.password.as_deref().unwrap_or("unknown").to_string();
+        let effective_username = username.unwrap_or(&config_username);
+        let effective_password = password.unwrap_or(&config_password);
+
+        let conn =
+            BackendConnection::connect(config, effective_username, effective_password).await?;
         let initial_cwd = conn.open_channel().await?;
 
         Ok((Arc::new(conn), initial_cwd))
