@@ -138,7 +138,7 @@ impl BackendConnection {
         let mut channel_lock = self.channel.lock().await;
         let channel = channel_lock.as_mut().context("Channel not opened")?;
 
-        let cmd_with_newline = format!("{}\n", cmd);
+        let cmd_with_newline = format!("{}\n", cmd.trim_end());
         channel
             .data(cmd_with_newline.as_bytes())
             .await
@@ -187,7 +187,9 @@ impl BackendConnection {
 
     fn has_prompt(data: &[u8]) -> bool {
         if let Ok(text) = std::str::from_utf8(data) {
-            let lines: Vec<&str> = text.lines().collect();
+            let cleaned = ANSI_ESCAPE_RE.replace_all(&text, "");
+            let lines: Vec<&str> = cleaned.lines().collect();
+
             if let Some(last_line) = lines.last() {
                 return last_line.ends_with("$ ") || last_line.ends_with("# ");
             }
