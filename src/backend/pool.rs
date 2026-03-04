@@ -48,11 +48,11 @@ impl BackendPool {
         let effective_username = username.unwrap_or(&config_username);
         let effective_password = password.unwrap_or(&config_password);
 
-        let conn =
+        let connection =
             BackendConnection::connect(config, effective_username, effective_password).await?;
-        let initial_cwd = conn.open_channel().await?;
+        let initial_cwd = connection.open_channel().await?;
 
-        Ok((Arc::new(conn), initial_cwd))
+        Ok((Arc::new(connection), initial_cwd))
     }
 
     pub async fn get_backend_config(&self, name: &str) -> Option<BackendConfig> {
