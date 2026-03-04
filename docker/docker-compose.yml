@@ -1,6 +1,6 @@
 services:
   ####################################
-  ### Dispatcher
+  ### proxy
   ####################################
   reverssh:
     container_name: reverssh
@@ -17,10 +17,8 @@ services:
     restart: always
 
   ####################################
-  ### Layers
+  ### backends
   ####################################
-
-  ### SSH ###
   cowrie1:
     container_name: cowrie1
     image: cowrie/cowrie
