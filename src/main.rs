@@ -8,7 +8,7 @@ use reverssh::backend::pool::BackendPool;
 use reverssh::config::{load_config, validate_config};
 use reverssh::proxy::host_key::load_or_generate_host_key;
 use reverssh::proxy::server::ProxyServerFactory;
-use reverssh::router::migration::{CompositeDetector, KeywordDetector};
+use reverssh::router::rules::build_detector;
 use reverssh::session::manager::SessionManager;
 
 #[tokio::main]
@@ -23,18 +23,7 @@ async fn main() -> Result<()> {
 
     let backend_pool = Arc::new(BackendPool::new(config.backends.clone()));
 
-    let detector = Arc::new(CompositeDetector {
-        detectors: vec![
-            Arc::new(KeywordDetector {
-                keyword: "wget".to_string(),
-                target: "cowrie2".to_string(),
-            }),
-            Arc::new(KeywordDetector {
-                keyword: "curl".to_string(),
-                target: "cowrie2".to_string(),
-            }),
-        ],
-    });
+    let detector = build_detector();
 
     let mut ssh_config = SshConfig {
         inactivity_timeout: Some(Duration::from_secs(3600)),
