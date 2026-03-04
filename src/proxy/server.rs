@@ -434,14 +434,9 @@ impl ProxyServer {
             return Ok(backend);
         }
 
-        let (username, password) = match (&self.username, &self.password) {
-            (Some(u), Some(p)) => (u.as_str(), p.as_str()),
-            _ => return Err(anyhow::anyhow!("No credentials available")),
-        };
-
         let (backend, initial_cwd) = self
             .backend_pool
-            .create_connection(None, username, password)
+            .create_connection(None, self.username.as_deref(), self.password.as_deref())
             .await?;
 
         self.session_manager
@@ -565,12 +560,13 @@ impl ProxyServer {
             let _ = old_backend.close().await;
         }
 
-        let username = self.username.as_ref().context("No username")?;
-        let password = self.password.as_ref().context("No password")?;
-
         let (new_backend, _initial_cwd) = self
             .backend_pool
-            .create_connection(Some(target_backend), username, password)
+            .create_connection(
+                Some(target_backend),
+                self.username.as_deref(),
+                self.password.as_deref(),
+            )
             .await?;
 
         self.session_manager

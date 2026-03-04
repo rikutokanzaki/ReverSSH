@@ -59,7 +59,9 @@ pub struct BackendConfig {
     pub name: String,
     pub hostname: String,
     pub port: u16,
-    pub username: String,
+
+    #[serde(default)]
+    pub username: Option<String>,
 
     #[serde(alias = "key_path")]
     pub key_pair: Option<PathBuf>,
