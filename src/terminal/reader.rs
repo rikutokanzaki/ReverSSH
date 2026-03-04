@@ -18,6 +18,7 @@ pub struct LineReader {
     buffer: String,
     cursor: usize,
     esc_buffer: Vec<u8>,
+    utf8_buffer: Vec<u8>,
     history: VecDeque<String>,
     history_max: usize,
     history_pos: Option<usize>,
@@ -32,6 +33,7 @@ impl LineReader {
             buffer: String::new(),
             cursor: 0,
             esc_buffer: Vec::new(),
+            utf8_buffer: Vec::new(),
             history: VecDeque::new(),
             history_max,
             history_pos: None,
@@ -74,6 +76,29 @@ impl LineReader {
                 continue;
             }
 
+            if !self.utf8_buffer.is_empty() || byte >= 0x80 {
+                self.utf8_buffer.push(byte);
+
+                match std::str::from_utf8(&self.utf8_buffer) {
+                    Ok(s) => {
+                        if let Some(c) = s.chars().next() {
+                            events.push(InputEvent::Char(c));
+                        }
+                        self.utf8_buffer.clear();
+                    }
+                    Err(e) if e.error_len().is_none() => {
+                        if self.utf8_buffer.len() >= 4 {
+                            self.utf8_buffer.clear();
+                        }
+                    }
+                    Err(_) => {
+                        self.utf8_buffer.clear();
+                    }
+                }
+
+                continue;
+            }
+
             let event = match byte {
                 b'\r' | b'\n' => InputEvent::Enter,
                 0x7f | 0x08 => InputEvent::Backspace,
@@ -103,14 +128,19 @@ impl LineReader {
         match event {
             InputEvent::Char(c) => {
                 self.buffer.insert(self.cursor, c);
-                self.cursor += 1;
+                self.cursor += c.len_utf8();
                 self.history_pos = None;
             }
 
             // Backspace
             InputEvent::Backspace => {
                 if self.cursor > 0 {
-                    self.cursor -= 1;
+                    let prev = self.buffer[..self.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    self.cursor = prev;
                     self.buffer.remove(self.cursor);
                     self.history_pos = None;
                 }
@@ -127,14 +157,21 @@ impl LineReader {
             // Left
             InputEvent::ArrowLeft => {
                 if self.cursor > 0 {
-                    self.cursor -= 1;
+                    let prev = self.buffer[..self.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    self.cursor = prev;
                 }
             }
 
             // Right
             InputEvent::ArrowRight => {
                 if self.cursor < self.buffer.len() {
-                    self.cursor += 1;
+                    if let Some(c) = self.buffer[self.cursor..].chars().next() {
+                        self.cursor += c.len_utf8();
+                    }
                 }
             }
 

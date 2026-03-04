@@ -1,5 +1,6 @@
 use russh::server::Session;
 use russh::{ChannelId, CryptoVec};
+use unicode_width::UnicodeWidthChar;
 
 pub struct Renderer;
 
@@ -44,9 +45,12 @@ impl Renderer {
         out.push_str(&prompt);
         out.push_str(buffer);
 
-        let tail = buffer.len().saturating_sub(cursor);
-        if tail > 0 {
-            out.push_str(&format!("\x1b[{}D", tail));
+        let tail_cols: usize = buffer[cursor..]
+            .chars()
+            .map(|c| c.width().unwrap_or(1))
+            .sum();
+        if tail_cols > 0 {
+            out.push_str(&format!("\x1b[{}D", tail_cols));
         }
 
         self.send_data(channel, session, out.as_bytes());

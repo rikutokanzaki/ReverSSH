@@ -221,8 +221,13 @@ impl BackendConnection {
 
         let mut lines: Vec<&str> = ansi_stripped.lines().collect();
 
-        if !lines.is_empty() && lines[0].trim().ends_with(cmd) {
-            lines.remove(0);
+        if !lines.is_empty() {
+            let echo_ascii: String = lines[0].trim().chars().filter(|c| c.is_ascii()).collect();
+            let cmd_ascii: String = cmd.chars().filter(|c| c.is_ascii()).collect();
+
+            if !cmd_ascii.is_empty() && echo_ascii.ends_with(&cmd_ascii) {
+                lines.remove(0);
+            }
         }
 
         if !lines.is_empty() {
@@ -233,7 +238,12 @@ impl BackendConnection {
             }
         }
 
+        while lines.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+            lines.pop();
+        }
+
         let result = lines.join("\r\n");
+
         if !result.is_empty() {
             format!("{}\r\n", result).into_bytes()
         } else {
@@ -322,6 +332,7 @@ impl BackendConnection {
         if let Some(last_line) = lines.last() {
             if let Some(prompt_end) = last_line.find(|c| c == '$' || c == '#') {
                 let command_part = last_line[prompt_end + 1..].trim_start();
+
                 return Some(command_part.to_string());
             }
 
