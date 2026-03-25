@@ -57,7 +57,8 @@ impl Renderer {
     }
 
     pub fn send_data(&self, channel: ChannelId, session: &mut Session, data: &[u8]) {
-        session.data(channel, CryptoVec::from(data.to_vec()));
+        let data = normalize_line_endings(data);
+        session.data(channel, CryptoVec::from(data));
     }
 
     pub fn send_newline(&self, channel: ChannelId, session: &mut Session) {
@@ -79,4 +80,28 @@ impl Renderer {
         self.send_data(channel, session, &out);
         session.close(channel);
     }
+}
+
+fn normalize_line_endings(input: &[u8]) -> Vec<u8> {
+    if !has_bare_lf(input) {
+        return input.to_vec();
+    }
+
+    let mut out = Vec::with_capacity(input.len());
+
+    for (i, &byte) in input.iter().enumerate() {
+        if byte == b'\n' && (i == 0 || input[i - 1] != b'\r') {
+            out.push(b'\r');
+        }
+        out.push(byte);
+    }
+
+    return out;
+}
+
+fn has_bare_lf(input: &[u8]) -> bool {
+    input
+        .iter()
+        .enumerate()
+        .any(|(i, b)| *b == b'\n' && (i == 0 || input[i - 1] != b'\r'))
 }
