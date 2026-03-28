@@ -19,7 +19,8 @@ async fn main() -> Result<()> {
     validate_config(&config)?;
 
     let host_key = load_or_generate_host_key(&config.server)?;
-    let session_manager = Arc::new(SessionManager::new());
+    let log_path = "/var/log/reverssh/reverssh.log".to_string();
+    let session_manager = Arc::new(SessionManager::new(log_path));
 
     let backend_pool = Arc::new(BackendPool::new(config.backends.clone()));
 

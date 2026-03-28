@@ -110,12 +110,24 @@ impl server::Handler for ProxyServer {
         user: &str,
         password: &str,
     ) -> Result<(Self, Auth), Self::Error> {
-        if self.accept_any || self.allowed_users.contains(user) {
+        let is_allowed = self.accept_any || self.allowed_users.contains(user);
+
+        if is_allowed {
             self.username = Some(user.to_string());
             self.password = Some(password.to_string());
 
+            let logger = self.session_manager.get_logger();
+            let logger_guard = logger.lock().await;
+            logger_guard.log_auth_event("0.0.0.0", 0, "127.0.0.1", 22, user, password, true);
+            drop(logger_guard);
+
             return Ok((self, Auth::Accept));
         }
+
+        let logger = self.session_manager.get_logger();
+        let logger_guard = logger.lock().await;
+        logger_guard.log_auth_event("0.0.0.0", 0, "127.0.0.1", 22, user, password, false);
+        drop(logger_guard);
 
         Ok((
             self,
@@ -359,6 +371,17 @@ impl server::Handler for ProxyServer {
         session: Session,
     ) -> Result<(Self, Session), Self::Error> {
         if let Some(ref session_id) = self.session_id {
+            if let Some(session_lock) = self.session_manager.get_session(session_id).await {
+                let session_data = session_lock.read().await;
+                let username = session_data.username.clone();
+                drop(session_data);
+
+                let logger = self.session_manager.get_logger();
+                let logger_guard = logger.lock().await;
+                logger_guard.log_session_close("0.0.0.0", 0, &username, 0.0, "Channel closed");
+                drop(logger_guard);
+            }
+
             if let Err(e) = self.session_manager.remove_session(session_id).await {
                 error!(
                     "Failed to remove session {} on channel close: {:?}",
@@ -674,6 +697,22 @@ impl ProxyServer {
         match backend.execute_command(command).await {
             Ok((output, cwd)) => {
                 self.renderer.send_data(channel, session, &output);
+
+                let cwd_str = cwd
+                    .as_ref()
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "/".to_string());
+
+                if let Some(session_lock) = self.session_manager.get_session(session_id).await {
+                    let session_data = session_lock.read().await;
+                    let username = session_data.username.clone();
+                    drop(session_data);
+
+                    let logger = self.session_manager.get_logger();
+                    let logger_guard = logger.lock().await;
+                    logger_guard.log_command_event("0.0.0.0", 0, &username, command, &cwd_str);
+                    drop(logger_guard);
+                }
 
                 if let Some(new_cwd) = cwd {
                     if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
