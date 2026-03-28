@@ -121,6 +121,7 @@ impl server::Handler for ProxyServer {
             logger_guard.log_auth_event("0.0.0.0", 0, "127.0.0.1", 22, user, password, true);
             drop(logger_guard);
 
+            info!("[AUTH SUCCESS] user={} password={}", user, password);
             return Ok((self, Auth::Accept));
         }
 
@@ -129,6 +130,7 @@ impl server::Handler for ProxyServer {
         logger_guard.log_auth_event("0.0.0.0", 0, "127.0.0.1", 22, user, password, false);
         drop(logger_guard);
 
+        info!("[AUTH REJECTED] user={} password={}", user, password);
         Ok((
             self,
             Auth::Reject {
@@ -176,6 +178,10 @@ impl server::Handler for ProxyServer {
                 Ok(session_id) => {
                     self.session_id = Some(session_id.clone());
                     info!("Session {} created for user {}", session_id, username);
+                    info!(
+                        "[SESSION START - SHELL] session_id={} user={}",
+                        session_id, username
+                    );
                 }
                 Err(e) => {
                     error!("Failed to create session for user {}: {:?}", username, e);
@@ -227,6 +233,10 @@ impl server::Handler for ProxyServer {
         {
             Ok(session_id) => {
                 info!("Exec session {} created for user {}", session_id, username);
+                info!(
+                    "[SESSION START - EXEC] session_id={} user={} command={}",
+                    session_id, username, command
+                );
                 session_id
             }
             Err(e) => {
@@ -380,6 +390,10 @@ impl server::Handler for ProxyServer {
                 let logger_guard = logger.lock().await;
                 logger_guard.log_session_close("0.0.0.0", 0, &username, 0.0, "Channel closed");
                 drop(logger_guard);
+                info!(
+                    "[SESSION EXIT] session_id={} user={} exit_point=channel_close",
+                    session_id, username
+                );
             }
 
             if let Err(e) = self.session_manager.remove_session(session_id).await {
@@ -712,6 +726,10 @@ impl ProxyServer {
                     let logger_guard = logger.lock().await;
                     logger_guard.log_command_event("0.0.0.0", 0, &username, command, &cwd_str);
                     drop(logger_guard);
+                    info!(
+                        "[COMMAND EXECUTED] session_id={} user={} cmd={} cwd={}",
+                        session_id, username, command, cwd_str
+                    );
                 }
 
                 if let Some(new_cwd) = cwd {
@@ -743,6 +761,10 @@ impl ProxyServer {
 
                 session.exit_status_request(channel, 0);
                 session.eof(channel);
+                info!(
+                    "[SESSION EXIT] session_id={} exit_point=exec_success",
+                    session_id
+                );
                 session.close(channel);
             }
             Err(e) => {
@@ -752,6 +774,10 @@ impl ProxyServer {
                     .send_data(channel, session, error_msg.as_bytes());
                 session.exit_status_request(channel, 1);
                 session.eof(channel);
+                info!(
+                    "[SESSION EXIT] session_id={} exit_point=exec_error error={:?}",
+                    session_id, e
+                );
                 session.close(channel);
             }
         }
