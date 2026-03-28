@@ -24,6 +24,7 @@ pub struct ProxyServer {
 
     accept_any: bool,
     allowed_users: Arc<HashSet<String>>,
+    motd: String,
 
     session_id: Option<SessionId>,
     username: Option<String>,
@@ -42,6 +43,7 @@ impl ProxyServer {
         detector: Arc<dyn Detector>,
         accept_any: bool,
         allowed_users: Arc<HashSet<String>>,
+        motd: String,
     ) -> Self {
         let renderer = Renderer::new();
 
@@ -52,6 +54,7 @@ impl ProxyServer {
             detector,
             accept_any,
             allowed_users,
+            motd,
             session_id: None,
             username: None,
             password: None,
@@ -172,9 +175,8 @@ impl server::Handler for ProxyServer {
 
         self.renderer.send_newline(channel, &mut session);
 
-        let motd = return_motd("/config/motd.txt");
         self.renderer
-            .send_data(channel, &mut session, motd.as_bytes());
+            .send_data(channel, &mut session, self.motd.as_bytes());
 
         self.send_prompt_with_cwd(channel, &mut session).await;
 
@@ -724,6 +726,7 @@ pub struct ProxyServerFactory {
     detector: Arc<dyn Detector>,
     accept_any: bool,
     allowed_users: Arc<HashSet<String>>,
+    motd: String,
 }
 
 impl ProxyServerFactory {
@@ -758,6 +761,8 @@ impl ProxyServerFactory {
             }
         }
 
+        let motd = return_motd("/config/motd.txt");
+
         Self {
             config,
             session_manager,
@@ -765,6 +770,7 @@ impl ProxyServerFactory {
             detector,
             accept_any,
             allowed_users: Arc::new(allowed_users),
+            motd,
         }
     }
 }
@@ -780,6 +786,7 @@ impl server::Server for ProxyServerFactory {
             self.detector.clone(),
             self.accept_any,
             self.allowed_users.clone(),
+            self.motd.clone(),
         )
     }
 }

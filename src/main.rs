@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
     let mut ssh_config = SshConfig {
         inactivity_timeout: Some(Duration::from_secs(3600)),
         keys: vec![host_key],
+        auth_banner: Some(""),
         ..Default::default()
     };
 
