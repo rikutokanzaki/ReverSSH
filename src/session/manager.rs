@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::backend::handler::BackendConnection;
+use crate::session::logger::SharedLogger;
 use crate::terminal::state::{CmdInfo, TerminalState, WindowSize};
 
 pub type SessionId = String;
@@ -19,16 +20,21 @@ pub struct SessionData {
     pub client_channel: ChannelId,
     pub backend: Option<Arc<BackendConnection>>,
     pub terminal_state: TerminalState,
+    pub logger: SharedLogger,
 }
 
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<SessionData>>>>>,
+    logger: SharedLogger,
 }
 
 impl SessionManager {
-    pub fn new() -> Self {
+    pub fn new(log_path: String) -> Self {
+        use crate::session::logger::create_logger;
+        let logger = create_logger(&log_path);
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            logger,
         }
     }
 
@@ -47,6 +53,7 @@ impl SessionManager {
             client_channel,
             backend: None,
             terminal_state: TerminalState::new(),
+            logger: self.logger.clone(),
         };
 
         let mut sessions = self.sessions.write().await;
@@ -91,6 +98,10 @@ impl SessionManager {
             .backend
             .clone()
             .context("No backend connection established")
+    }
+
+    pub fn get_logger(&self) -> SharedLogger {
+        self.logger.clone()
     }
 
     pub async fn update_cwd(&self, session_id: &str, new_cwd: PathBuf) -> Result<()> {
