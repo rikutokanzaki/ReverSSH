@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,7 +8,7 @@ use russh::{Channel, ChannelId, MethodSet};
 
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
-use crate::proxy::authenticator::load_allowed_usernames;
+use crate::proxy::authenticator::{Authentication, FileBasedAuthenticator};
 use crate::proxy::motd::return_motd;
 use crate::router::migration::Detector;
 use crate::session::manager::{SessionId, SessionManager};
@@ -23,7 +22,7 @@ pub struct ProxyServer {
     detector: Arc<dyn Detector>,
 
     accept_any: bool,
-    allowed_users: Arc<HashSet<String>>,
+    authenticator: Option<Arc<FileBasedAuthenticator>>,
     motd: String,
 
     session_id: Option<SessionId>,
@@ -42,7 +41,7 @@ impl ProxyServer {
         backend_pool: Arc<BackendPool>,
         detector: Arc<dyn Detector>,
         accept_any: bool,
-        allowed_users: Arc<HashSet<String>>,
+        authenticator: Option<Arc<FileBasedAuthenticator>>,
         motd: String,
     ) -> Self {
         let renderer = Renderer::new();
@@ -53,7 +52,7 @@ impl ProxyServer {
             backend_pool,
             detector,
             accept_any,
-            allowed_users,
+            authenticator,
             motd,
             session_id: None,
             username: None,
@@ -110,7 +109,13 @@ impl server::Handler for ProxyServer {
         user: &str,
         password: &str,
     ) -> Result<(Self, Auth), Self::Error> {
-        let is_allowed = self.accept_any || self.allowed_users.contains(user);
+        let is_allowed = if self.accept_any {
+            true
+        } else if let Some(authenticator) = &self.authenticator {
+            authenticator.auth(user, password).is_some()
+        } else {
+            false
+        };
 
         if is_allowed {
             self.username = Some(user.to_string());
@@ -790,7 +795,7 @@ pub struct ProxyServerFactory {
     backend_pool: Arc<BackendPool>,
     detector: Arc<dyn Detector>,
     accept_any: bool,
-    allowed_users: Arc<HashSet<String>>,
+    authenticator: Option<Arc<FileBasedAuthenticator>>,
     motd: String,
 }
 
@@ -803,16 +808,16 @@ impl ProxyServerFactory {
     ) -> Self {
         let accept_any = config.auth.accept_any;
 
-        let mut allowed_users = HashSet::new();
+        let mut authenticator: Option<Arc<FileBasedAuthenticator>> = None;
         let primary = config.auth.user_db_path.clone();
 
-        match load_allowed_usernames(&primary) {
-            Ok(set) => allowed_users = set,
+        match FileBasedAuthenticator::new(primary.to_string_lossy().as_ref()) {
+            Ok(auth) => authenticator = Some(Arc::new(auth)),
             Err(err) => {
                 let fallback = std::path::PathBuf::from("config/user.txt");
 
-                match load_allowed_usernames(&fallback) {
-                    Ok(set) => allowed_users = set,
+                match FileBasedAuthenticator::new(fallback.to_string_lossy().as_ref()) {
+                    Ok(auth) => authenticator = Some(Arc::new(auth)),
                     Err(err2) => {
                         warn!(
                             "Failed to load user db: {} ({}) and fallback {} ({})",
@@ -834,7 +839,7 @@ impl ProxyServerFactory {
             backend_pool,
             detector,
             accept_any,
-            allowed_users: Arc::new(allowed_users),
+            authenticator,
             motd,
         }
     }
@@ -850,7 +855,7 @@ impl server::Server for ProxyServerFactory {
             self.backend_pool.clone(),
             self.detector.clone(),
             self.accept_any,
-            self.allowed_users.clone(),
+            self.authenticator.clone(),
             self.motd.clone(),
         )
     }
