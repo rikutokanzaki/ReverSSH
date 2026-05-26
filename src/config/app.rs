@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -9,6 +10,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub backends: Vec<BackendConfig>,
+
+    #[serde(default)]
+    pub migration: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

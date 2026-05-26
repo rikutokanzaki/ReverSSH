@@ -10,6 +10,9 @@ authorized_keys_dir = "/config/authorized_keys"
 accept_any = false
 user_db_path = "/config/user.txt"
 
+[migration]
+download = "cowrie2"
+
 [[backends]]
 name = "cowrie1"
 hostname = "cowrie1"

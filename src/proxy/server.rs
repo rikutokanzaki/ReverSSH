@@ -528,10 +528,24 @@ impl ProxyServer {
             if let Some(ref cmd_info) = session_data.terminal_state.last_cmd {
                 if let Some(target_backend) = self.detector.detect(cmd_info) {
                     drop(session_data);
-                    info!("Detected attack pattern, migrating to: {}", target_backend);
+                    let resolved_backend = self
+                        .config
+                        .migration
+                        .get(target_backend.as_str())
+                        .map(|s| s.as_str())
+                        .unwrap_or(target_backend.as_str());
+
+                    if resolved_backend != target_backend.as_str() {
+                        info!(
+                            "Detected attack pattern, migrating to: {} (mapped from {})",
+                            resolved_backend, target_backend
+                        );
+                    } else {
+                        info!("Detected attack pattern, migrating to: {}", resolved_backend);
+                    }
 
                     if let Err(e) = self
-                        .perform_migration(session_id, &target_backend, channel, session)
+                        .perform_migration(session_id, resolved_backend, channel, session)
                         .await
                     {
                         error!("Migration failed: {:?}", e);
@@ -749,13 +763,25 @@ impl ProxyServer {
                     if let Some(ref cmd_info) = session_data.terminal_state.last_cmd {
                         if let Some(target_backend) = self.detector.detect(cmd_info) {
                             drop(session_data);
+                            let resolved_backend = self
+                                .config
+                                .migration
+                                .get(target_backend.as_str())
+                                .map(|s| s.as_str())
+                                .unwrap_or(target_backend.as_str());
+
                             info!(
-                                "Detected attack pattern in exec mode, migrating to: {}",
-                                target_backend
+                                "Detected attack pattern in exec mode, migrating to: {}{}",
+                                resolved_backend,
+                                if resolved_backend != target_backend.as_str() {
+                                    " (mapped)"
+                                } else {
+                                    ""
+                                }
                             );
 
                             if let Err(e) = self
-                                .perform_migration(session_id, &target_backend, channel, session)
+                                .perform_migration(session_id, resolved_backend, channel, session)
                                 .await
                             {
                                 error!("Migration failed: {:?}", e);
