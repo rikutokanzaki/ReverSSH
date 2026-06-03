@@ -1,6 +1,6 @@
+use russh::ChannelId;
 use russh::keys::ssh_encoding::bytes::Bytes;
 use russh::server::Session;
-use russh::ChannelId;
 use unicode_width::UnicodeWidthChar;
 
 pub struct Renderer;

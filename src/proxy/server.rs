@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use log::{error, info, warn};
+use russh::MethodKind;
 use russh::server::{self, Auth, Msg, Session};
 use russh::{Channel, ChannelId, MethodSet};
-use russh::MethodKind;
 
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
@@ -68,10 +68,7 @@ impl ProxyServer {
 impl server::Handler for ProxyServer {
     type Error = anyhow::Error;
 
-    fn auth_none(
-        &mut self,
-        _user: &str,
-    ) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
+    fn auth_none(&mut self, _user: &str) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
         async move {
             Ok(Auth::Reject {
                 proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
@@ -106,11 +103,7 @@ impl server::Handler for ProxyServer {
         }
     }
 
-    async fn auth_password(
-        &mut self,
-        user: &str,
-        password: &str,
-    ) -> Result<Auth, Self::Error> {
+    async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         let is_allowed = if self.accept_any {
             true
         } else if let Some(authenticator) = &self.authenticator {
@@ -139,10 +132,9 @@ impl server::Handler for ProxyServer {
 
         info!("[AUTH REJECTED] user={} password={}", user, password);
         Ok(Auth::Reject {
-                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
-                partial_success: false,
-            },
-        )
+            proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+            partial_success: false,
+        })
     }
 
     async fn channel_open_session(
@@ -544,7 +536,10 @@ impl ProxyServer {
                             resolved_backend, target_backend
                         );
                     } else {
-                        info!("Detected attack pattern, migrating to: {}", resolved_backend);
+                        info!(
+                            "Detected attack pattern, migrating to: {}",
+                            resolved_backend
+                        );
                     }
 
                     if let Err(e) = self

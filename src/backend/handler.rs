@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use lazy_static::lazy_static;
 use log::{info, warn};
 use regex::Regex;
-use russh::client::{self, Handle, Msg as ClientMsg, AuthResult};
+use russh::client::{self, AuthResult, Handle, Msg as ClientMsg};
 use russh::keys::{Algorithm, HashAlg, PrivateKeyWithHashAlg};
 use russh::{Channel, ChannelMsg};
 use std::borrow::Cow;
@@ -30,8 +30,12 @@ impl BackendConnection {
     pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
         let mut client_config = client::Config::default();
         client_config.preferred.key = Cow::Owned(vec![
-            Algorithm::Rsa { hash: Some(HashAlg::Sha512) },
-            Algorithm::Rsa { hash: Some(HashAlg::Sha256) },
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha512),
+            },
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha256),
+            },
             Algorithm::Rsa { hash: None },
         ]);
 
@@ -54,7 +58,8 @@ impl BackendConnection {
                 if let Some(ref key_path) = config.key_pair {
                     let private_key = russh::keys::load_secret_key(key_path, None)
                         .context("Failed to load private key")?;
-                    let key = PrivateKeyWithHashAlg::new(Arc::new(private_key), Some(HashAlg::Sha256));
+                    let key =
+                        PrivateKeyWithHashAlg::new(Arc::new(private_key), Some(HashAlg::Sha256));
                     session
                         .authenticate_publickey(username, key)
                         .await
