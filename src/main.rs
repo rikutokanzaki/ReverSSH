@@ -1,8 +1,10 @@
 use anyhow::Result;
 use russh::SshId;
 use russh::server::Config as SshConfig;
+use russh::server::Server as _;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::net::TcpListener;
 
 use reverssh::backend::pool::BackendPool;
 use reverssh::config::{load_config, validate_config};
@@ -29,25 +31,39 @@ async fn main() -> Result<()> {
     let mut ssh_config = SshConfig {
         inactivity_timeout: Some(Duration::from_secs(3600)),
         keys: vec![host_key],
-        auth_banner: Some(""),
         ..Default::default()
     };
 
     if let Some(ref version) = config.server.ssh_version {
-        ssh_config.server_id = SshId::Standard(version.clone());
+        ssh_config.server_id = SshId::Standard(version.clone().into());
     }
 
     let config_arc = Arc::new(config);
     let listen_addr = config_arc.server.listen_addr;
 
-    let server_factory = ProxyServerFactory::new(
+    let mut server_factory = ProxyServerFactory::new(
         config_arc.clone(),
         session_manager.clone(),
         backend_pool,
         detector,
     );
 
-    russh::server::run(Arc::new(ssh_config), listen_addr, server_factory).await?;
+    let ssh_config = Arc::new(ssh_config);
+
+    log::info!("Listening on {}", listen_addr);
+    let listener = TcpListener::bind(listen_addr).await?;
+
+    while let Ok((stream, client_addr)) = listener.accept().await {
+        let config = Arc::clone(&ssh_config);
+
+        let handler = server_factory.new_client(Some(client_addr));
+
+        tokio::spawn(async move {
+            if let Err(e) = russh::server::run_stream(config, stream, handler).await {
+                log::error!("SSH session error for {}: {:?}", client_addr, e);
+            }
+        });
+    }
 
     Ok(())
 }

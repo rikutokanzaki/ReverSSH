@@ -2,8 +2,10 @@ use anyhow::{Context, Result};
 use lazy_static::lazy_static;
 use log::{info, warn};
 use regex::Regex;
-use russh::client::{self, Handle, Msg as ClientMsg};
+use russh::client::{self, AuthResult, Handle, Msg as ClientMsg};
+use russh::keys::{Algorithm, HashAlg, PrivateKeyWithHashAlg};
 use russh::{Channel, ChannelMsg};
+use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
@@ -26,7 +28,17 @@ pub struct BackendConnection {
 
 impl BackendConnection {
     pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
-        let client_config = client::Config::default();
+        let mut client_config = client::Config::default();
+        client_config.preferred.key = Cow::Owned(vec![
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha512),
+            },
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha256),
+            },
+            Algorithm::Rsa { hash: None },
+        ]);
+
         let client = Client;
 
         let mut session = client::connect(
@@ -44,10 +56,12 @@ impl BackendConnection {
                 .context("Password authentication failed")?,
             AuthType::Key => {
                 if let Some(ref key_path) = config.key_pair {
-                    let key = russh_keys::load_secret_key(key_path, None)
-                        .context("Failed to load SSH key")?;
+                    let private_key = russh::keys::load_secret_key(key_path, None)
+                        .context("Failed to load private key")?;
+                    let key =
+                        PrivateKeyWithHashAlg::new(Arc::new(private_key), Some(HashAlg::Sha256));
                     session
-                        .authenticate_publickey(username, Arc::new(key))
+                        .authenticate_publickey(username, key)
                         .await
                         .context("Key authentication failed")?
                 } else {
@@ -56,7 +70,7 @@ impl BackendConnection {
             }
         };
 
-        if !auth_result {
+        if !matches!(auth_result, AuthResult::Success) {
             return Err(anyhow::anyhow!("Backend authentication failed"));
         }
 
