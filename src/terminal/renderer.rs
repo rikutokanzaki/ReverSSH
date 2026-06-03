@@ -1,5 +1,6 @@
+use russh::keys::ssh_encoding::bytes::Bytes;
 use russh::server::Session;
-use russh::{ChannelId, CryptoVec};
+use russh::ChannelId;
 use unicode_width::UnicodeWidthChar;
 
 pub struct Renderer;
@@ -58,7 +59,7 @@ impl Renderer {
 
     pub fn send_data(&self, channel: ChannelId, session: &mut Session, data: &[u8]) {
         let data = normalize_line_endings(data);
-        session.data(channel, CryptoVec::from(data));
+        session.data(channel, Bytes::from(data.to_vec())).ok();
     }
 
     pub fn send_newline(&self, channel: ChannelId, session: &mut Session) {
@@ -78,7 +79,7 @@ impl Renderer {
             out.extend_from_slice(b"\r\n");
         }
         self.send_data(channel, session, &out);
-        session.close(channel);
+        let _ = session.close(channel);
     }
 }
 

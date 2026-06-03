@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use log::{error, info, warn};
 use russh::server::{self, Auth, Msg, Session};
 use russh::{Channel, ChannelId, MethodSet};
+use russh::MethodKind;
 
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
@@ -65,50 +65,52 @@ impl ProxyServer {
     }
 }
 
-#[async_trait]
 impl server::Handler for ProxyServer {
     type Error = anyhow::Error;
 
-    async fn auth_none(self, _user: &str) -> Result<(Self, Auth), Self::Error> {
-        Ok((
-            self,
-            Auth::Reject {
-                proceed_with_methods: Some(MethodSet::PASSWORD),
-            },
-        ))
+    fn auth_none(
+        &mut self,
+        _user: &str,
+    ) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
+        async move {
+            Ok(Auth::Reject {
+                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+                partial_success: false,
+            })
+        }
     }
 
-    async fn auth_publickey_offered(
-        self,
+    fn auth_publickey_offered(
+        &mut self,
         _user: &str,
-        _public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, Auth), Self::Error> {
-        Ok((
-            self,
-            Auth::Reject {
-                proceed_with_methods: Some(MethodSet::PASSWORD),
-            },
-        ))
+        _public_key: &russh::keys::PublicKey,
+    ) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
+        async move {
+            Ok(Auth::Reject {
+                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+                partial_success: false,
+            })
+        }
     }
 
-    async fn auth_publickey(
-        self,
+    fn auth_publickey(
+        &mut self,
         _user: &str,
-        _public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, Auth), Self::Error> {
-        Ok((
-            self,
-            Auth::Reject {
-                proceed_with_methods: Some(MethodSet::PASSWORD),
-            },
-        ))
+        _public_key: &russh::keys::PublicKey,
+    ) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
+        async move {
+            Ok(Auth::Reject {
+                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+                partial_success: false,
+            })
+        }
     }
 
     async fn auth_password(
-        mut self,
+        &mut self,
         user: &str,
         password: &str,
-    ) -> Result<(Self, Auth), Self::Error> {
+    ) -> Result<Auth, Self::Error> {
         let is_allowed = if self.accept_any {
             true
         } else if let Some(authenticator) = &self.authenticator {
@@ -127,7 +129,7 @@ impl server::Handler for ProxyServer {
             drop(logger_guard);
 
             info!("[AUTH SUCCESS] user={} password={}", user, password);
-            return Ok((self, Auth::Accept));
+            return Ok(Auth::Accept);
         }
 
         let logger = self.session_manager.get_logger();
@@ -136,24 +138,23 @@ impl server::Handler for ProxyServer {
         drop(logger_guard);
 
         info!("[AUTH REJECTED] user={} password={}", user, password);
-        Ok((
-            self,
-            Auth::Reject {
-                proceed_with_methods: Some(MethodSet::PASSWORD),
+        Ok(Auth::Reject {
+                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+                partial_success: false,
             },
-        ))
+        )
     }
 
     async fn channel_open_session(
-        self,
+        &mut self,
         _channel: Channel<Msg>,
-        session: Session,
-    ) -> Result<(Self, bool, Session), Self::Error> {
-        Ok((self, true, session))
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
     }
 
     async fn pty_request(
-        self,
+        &mut self,
         channel: ChannelId,
         _term: &str,
         _col_width: u32,
@@ -161,17 +162,17 @@ impl server::Handler for ProxyServer {
         _pix_width: u32,
         _pix_height: u32,
         _modes: &[(russh::Pty, u32)],
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
-        session.channel_success(channel);
-        Ok((self, session))
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let _ = session.channel_success(channel);
+        Ok(())
     }
 
     async fn shell_request(
-        mut self,
+        &mut self,
         channel: ChannelId,
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
         self.shell_active = true;
 
         if let (Some(username), Some(password)) = (self.username.as_ref(), self.password.as_ref()) {
@@ -194,24 +195,24 @@ impl server::Handler for ProxyServer {
             }
         }
 
-        session.channel_success(channel);
+        let _ = session.channel_success(channel);
 
-        self.renderer.send_newline(channel, &mut session);
+        self.renderer.send_newline(channel, session);
 
         self.renderer
-            .send_data(channel, &mut session, self.motd.as_bytes());
+            .send_data(channel, session, self.motd.as_bytes());
 
-        self.send_prompt_with_cwd(channel, &mut session).await;
+        self.send_prompt_with_cwd(channel, session).await;
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn exec_request(
-        mut self,
+        &mut self,
         channel: ChannelId,
         data: &[u8],
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
         self.exec_mode = true;
 
         let command = String::from_utf8_lossy(data).to_string();
@@ -223,11 +224,13 @@ impl server::Handler for ProxyServer {
                 error!("No credentials available for exec request");
                 let error_msg = "Authentication required\r\n";
                 self.renderer
-                    .send_data(channel, &mut session, error_msg.as_bytes());
-                session.exit_status_request(channel, 1);
-                session.eof(channel);
-                session.close(channel);
-                return Ok((self, session));
+                    .send_data(channel, session, error_msg.as_bytes());
+
+                let _ = session.exit_status_request(channel, 1);
+                let _ = session.eof(channel);
+                let _ = session.close(channel);
+
+                return Ok(());
             }
         };
 
@@ -251,12 +254,12 @@ impl server::Handler for ProxyServer {
                 );
                 let error_msg = "Failed to create session\r\n";
                 self.renderer
-                    .send_data(channel, &mut session, error_msg.as_bytes());
-                session.exit_status_request(channel, 1);
-                session.eof(channel);
-                session.close(channel);
+                    .send_data(channel, session, error_msg.as_bytes());
+                let _ = session.exit_status_request(channel, 1);
+                let _ = session.eof(channel);
+                let _ = session.close(channel);
 
-                return Ok((self, session));
+                return Ok(());
             }
         };
 
@@ -270,21 +273,21 @@ impl server::Handler for ProxyServer {
             warn!("Failed to record command: {:?}", e);
         }
 
-        self.run_argument_command(channel, &mut session, &session_id, &command)
+        self.run_argument_command(channel, session, &session_id, &command)
             .await;
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn window_change_request(
-        self,
+        &mut self,
         channel: ChannelId,
         col_width: u32,
         row_height: u32,
         _pix_width: u32,
         _pix_height: u32,
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
         if let Some(ref session_id) = self.session_id {
             if let Err(e) = self
                 .session_manager
@@ -298,18 +301,18 @@ impl server::Handler for ProxyServer {
             }
         }
 
-        session.channel_success(channel);
-        Ok((self, session))
+        let _ = session.channel_success(channel);
+        Ok(())
     }
 
     async fn data(
-        mut self,
+        &mut self,
         channel: ChannelId,
         data: &[u8],
-        mut session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
         if !self.shell_active {
-            return Ok((self, session));
+            return Ok(());
         }
 
         let events = self.reader.feed_bytes(data);
@@ -317,14 +320,14 @@ impl server::Handler for ProxyServer {
         for event in events {
             if matches!(event, InputEvent::Tab) {
                 if let Some(session_id) = self.session_id.clone() {
-                    self.handle_tab_completion(channel, &mut session, &session_id)
+                    self.handle_tab_completion(channel, session, &session_id)
                         .await;
                 }
                 continue;
             }
 
             if let Some(line) = self.reader.apply(event) {
-                self.renderer.send_newline(channel, &mut session);
+                self.renderer.send_newline(channel, session);
 
                 let trimmed = line.trim();
 
@@ -339,19 +342,19 @@ impl server::Handler for ProxyServer {
                 }
 
                 if trimmed.is_empty() {
-                    self.handle_empty_line(channel, &mut session).await;
+                    self.handle_empty_line(channel, session).await;
                     continue;
                 }
 
                 if trimmed == "exit" || trimmed == "logout" {
-                    if self.handle_exit_command(channel, &mut session).await {
-                        return Ok((self, session));
+                    if self.handle_exit_command(channel, session).await {
+                        return Ok(());
                     }
                     continue;
                 }
 
                 if let Some(session_id) = self.session_id.clone() {
-                    self.execute_and_handle_command(channel, &mut session, &session_id, trimmed)
+                    self.execute_and_handle_command(channel, session, &session_id, trimmed)
                         .await;
                 }
             } else {
@@ -367,7 +370,7 @@ impl server::Handler for ProxyServer {
                 let cursor = self.reader.cursor();
                 self.renderer.redraw_line(
                     channel,
-                    &mut session,
+                    session,
                     username,
                     &self.config.server.name,
                     cwd.as_deref(),
@@ -377,14 +380,14 @@ impl server::Handler for ProxyServer {
             }
         }
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn channel_close(
-        mut self,
+        &mut self,
         _channel: ChannelId,
-        session: Session,
-    ) -> Result<(Self, Session), Self::Error> {
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
         if let Some(ref session_id) = self.session_id {
             if let Some(session_lock) = self.session_manager.get_session(session_id).await {
                 let session_data = session_lock.read().await;
@@ -410,7 +413,7 @@ impl server::Handler for ProxyServer {
             self.session_id = None;
         }
 
-        Ok((self, session))
+        Ok(())
     }
 }
 
@@ -599,7 +602,7 @@ impl ProxyServer {
         session_id: &str,
         target_backend: &str,
         _channel: ChannelId,
-        _session: &mut Session,
+        mut _session: &mut Session,
     ) -> anyhow::Result<()> {
         use anyhow::Context;
 
@@ -719,9 +722,9 @@ impl ProxyServer {
                 let error_msg = "Failed to connect to backend\r\n";
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
-                session.exit_status_request(channel, 1);
-                session.eof(channel);
-                session.close(channel);
+                let _ = session.exit_status_request(channel, 1);
+                let _ = session.eof(channel);
+                let _ = session.close(channel);
 
                 return;
             }
@@ -790,26 +793,26 @@ impl ProxyServer {
                     }
                 }
 
-                session.exit_status_request(channel, 0);
-                session.eof(channel);
+                let _ = session.exit_status_request(channel, 0);
+                let _ = session.eof(channel);
                 info!(
                     "[SESSION EXIT] session_id={} exit_point=exec_success",
                     session_id
                 );
-                session.close(channel);
+                let _ = session.close(channel);
             }
             Err(e) => {
                 error!("Command execution failed: {:?}", e);
                 let error_msg = "Command execution failed\r\n";
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
-                session.exit_status_request(channel, 1);
-                session.eof(channel);
+                let _ = session.exit_status_request(channel, 1);
+                let _ = session.eof(channel);
                 info!(
                     "[SESSION EXIT] session_id={} exit_point=exec_error error={:?}",
                     session_id, e
                 );
-                session.close(channel);
+                let _ = session.close(channel);
             }
         }
     }
