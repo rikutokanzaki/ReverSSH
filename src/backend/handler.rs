@@ -159,7 +159,7 @@ impl BackendConnection {
             .context("Failed to send command")?;
 
         let mut output = Vec::new();
-        let read_timeout = Duration::from_secs(30);
+        let read_timeout = Duration::from_secs(120);
 
         loop {
             match timeout(read_timeout, channel.wait()).await {
