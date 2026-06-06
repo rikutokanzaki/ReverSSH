@@ -41,24 +41,26 @@ impl FileBasedAuthenticator {
 impl Authentication for FileBasedAuthenticator {
     fn auth(&self, username: &str, password: &str) -> Option<AuthResult> {
         for (rule_user, rule_pass) in &self.rules {
-            if rule_user == username || rule_user == "*" {
-                if rule_pass == "*" {
+            if rule_user != username && rule_user != "*" {
+                continue;
+            }
+
+            if rule_pass == "*" {
+                return Some(username.to_string());
+            }
+
+            if let Some(denied) = rule_pass.strip_prefix('!') {
+                if password != denied {
                     return Some(username.to_string());
                 }
+                continue;
+            }
 
-                if let Some(denied) = rule_pass.strip_prefix('!') {
-                    if password != denied {
-                        return Some(username.to_string());
-                    }
-                    return None;
-                }
-
-                if password == rule_pass {
-                    return Some(username.to_string());
-                }
-                return None;
+            if password == rule_pass {
+                return Some(username.to_string());
             }
         }
+
         None
     }
 }
