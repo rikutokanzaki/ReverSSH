@@ -1,3 +1,4 @@
+use chrono::Utc;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -11,6 +12,7 @@ use crate::config::AppConfig;
 use crate::proxy::authenticator::{Authentication, FileBasedAuthenticator};
 use crate::proxy::motd::return_motd;
 use crate::router::migration::Detector;
+use crate::session::logger::CommandLogEvent;
 use crate::session::manager::{SessionId, SessionManager};
 use crate::terminal::reader::{InputEvent, LineReader};
 use crate::terminal::renderer::Renderer;
@@ -381,20 +383,8 @@ impl server::Handler for ProxyServer {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         if let Some(ref session_id) = self.session_id {
-            if let Some(session_lock) = self.session_manager.get_session(session_id).await {
-                let session_data = session_lock.read().await;
-                let username = session_data.username.clone();
-                drop(session_data);
-
-                let logger = self.session_manager.get_logger();
-                let logger_guard = logger.lock().await;
-                logger_guard.log_session_close("0.0.0.0", 0, &username, 0.0, "Channel closed");
-                drop(logger_guard);
-                info!(
-                    "[SESSION EXIT] session_id={} user={} exit_point=channel_close",
-                    session_id, username
-                );
-            }
+            self.log_session_close(session_id, "Channel closed", "channel_close")
+                .await;
 
             if let Err(e) = self.session_manager.remove_session(session_id).await {
                 error!(
@@ -496,6 +486,9 @@ impl ProxyServer {
 
     async fn handle_exit_command(&mut self, channel: ChannelId, session: &mut Session) -> bool {
         if let Some(ref session_id) = self.session_id {
+            self.log_session_close(session_id, "Client requested exit", "exit_command")
+                .await;
+
             if let Ok(backend) = self.session_manager.get_backend(session_id).await {
                 let _ = backend.close().await;
             }
@@ -565,18 +558,43 @@ impl ProxyServer {
         let backend = match self.ensure_backend_connected(session_id).await {
             Ok(backend) => backend,
             Err(e) => {
+                let error_message = e.to_string();
                 error!("Failed to establish backend connection: {:?}", e);
                 self.send_error_and_prompt(channel, session, "Failed to connect to backend\r\n");
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    None,
+                    None,
+                    Some(error_message.as_str()),
+                    None,
+                    Utc::now(),
+                )
+                .await;
 
                 return;
             }
         };
 
         match backend.execute_command(command).await {
-            Ok((output, cwd)) => {
-                self.renderer.send_data(channel, session, &output);
+            Ok(result) => {
+                self.renderer
+                    .send_data(channel, session, &result.displayed_output);
+                let response_cwd = result.cwd.clone();
 
-                if let Some(new_cwd) = cwd {
+                let response_timestamp = Utc::now();
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    Some(&result.raw_output),
+                    Some(&result.displayed_output),
+                    None,
+                    response_cwd.as_deref(),
+                    response_timestamp,
+                )
+                .await;
+
+                if let Some(new_cwd) = response_cwd {
                     if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
                         warn!("Failed to update CWD: {:?}", e);
                     }
@@ -588,6 +606,17 @@ impl ProxyServer {
             Err(e) => {
                 error!("Command execution failed: {:?}", e);
                 self.send_error_and_prompt(channel, session, "Command execution failed\r\n");
+                let error_message = e.to_string();
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    None,
+                    None,
+                    Some(error_message.as_str()),
+                    None,
+                    Utc::now(),
+                )
+                .await;
             }
         }
     }
@@ -632,8 +661,8 @@ impl ProxyServer {
         if let Some(cwd) = current_cwd {
             let cd_cmd = format!("cd {}", cwd.display());
 
-            if let Ok((_, new_cwd)) = new_backend.execute_command(&cd_cmd).await {
-                if let Some(verified_cwd) = new_cwd {
+            if let Ok(result) = new_backend.execute_command(&cd_cmd).await {
+                if let Some(verified_cwd) = result.cwd {
                     let _ = self.update_session_cwd(session_id, &verified_cwd).await;
                 }
             }
@@ -713,10 +742,21 @@ impl ProxyServer {
         let backend = match self.ensure_backend_connected(session_id).await {
             Ok(backend) => backend,
             Err(e) => {
+                let error_message = e.to_string();
                 error!("Failed to establish backend connection: {:?}", e);
                 let error_msg = "Failed to connect to backend\r\n";
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    None,
+                    None,
+                    Some(error_message.as_str()),
+                    None,
+                    Utc::now(),
+                )
+                .await;
                 let _ = session.exit_status_request(channel, 1);
                 let _ = session.eof(channel);
                 let _ = session.close(channel);
@@ -726,30 +766,37 @@ impl ProxyServer {
         };
 
         match backend.execute_command(command).await {
-            Ok((output, cwd)) => {
-                self.renderer.send_data(channel, session, &output);
+            Ok(result) => {
+                self.renderer
+                    .send_data(channel, session, &result.displayed_output);
+                let response_cwd = result.cwd.clone();
 
-                let cwd_str = cwd
-                    .as_ref()
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "/".to_string());
+                let response_timestamp = Utc::now();
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    Some(&result.raw_output),
+                    Some(&result.displayed_output),
+                    None,
+                    response_cwd.as_deref(),
+                    response_timestamp,
+                )
+                .await;
+
+                let cwd_str = response_cwd.clone().unwrap_or_else(|| "/".to_string());
 
                 if let Some(session_lock) = self.session_manager.get_session(session_id).await {
                     let session_data = session_lock.read().await;
                     let username = session_data.username.clone();
                     drop(session_data);
 
-                    let logger = self.session_manager.get_logger();
-                    let logger_guard = logger.lock().await;
-                    logger_guard.log_command_event("0.0.0.0", 0, &username, command, &cwd_str);
-                    drop(logger_guard);
                     info!(
                         "[COMMAND EXECUTED] session_id={} user={} cmd={} cwd={}",
                         session_id, username, command, cwd_str
                     );
                 }
 
-                if let Some(new_cwd) = cwd {
+                if let Some(new_cwd) = response_cwd {
                     if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
                         warn!("Failed to update CWD: {:?}", e);
                     }
@@ -801,6 +848,17 @@ impl ProxyServer {
                 let error_msg = "Command execution failed\r\n";
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
+                let error_message = e.to_string();
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    None,
+                    None,
+                    Some(error_message.as_str()),
+                    None,
+                    Utc::now(),
+                )
+                .await;
                 let _ = session.exit_status_request(channel, 1);
                 let _ = session.eof(channel);
                 info!(
@@ -810,6 +868,94 @@ impl ProxyServer {
                 let _ = session.close(channel);
             }
         }
+    }
+
+    async fn log_command_execution(
+        &self,
+        session_id: &str,
+        command: &str,
+        backend_response_raw: Option<&[u8]>,
+        backend_response_displayed: Option<&[u8]>,
+        backend_response_error: Option<&str>,
+        cwd_override: Option<&str>,
+        response_timestamp: chrono::DateTime<Utc>,
+    ) {
+        let session_lock = match self.session_manager.get_session(session_id).await {
+            Some(session_lock) => session_lock,
+            None => return,
+        };
+
+        let session_data = session_lock.read().await;
+        let username = session_data.username.clone();
+        let cwd = cwd_override
+            .map(|path| path.to_string())
+            .or_else(|| {
+                session_data
+                    .terminal_state
+                    .cwd
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| "/".to_string());
+        let input_timestamp = session_data
+            .terminal_state
+            .last_cmd
+            .as_ref()
+            .map(|cmd_info| cmd_info.ts)
+            .unwrap_or(response_timestamp);
+        drop(session_data);
+
+        let raw_response =
+            backend_response_raw.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
+        let displayed_response =
+            backend_response_displayed.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
+        let response_latency_ms = response_timestamp
+            .signed_duration_since(input_timestamp)
+            .num_milliseconds();
+
+        let logger = self.session_manager.get_logger();
+        let logger_guard = logger.lock().await;
+        logger_guard.log_command_event(&CommandLogEvent {
+            src_ip: "0.0.0.0",
+            src_port: 0,
+            username: &username,
+            command,
+            cwd: &cwd,
+            input_timestamp,
+            response_timestamp,
+            response_latency_ms,
+            backend_response_raw: raw_response.as_deref(),
+            backend_response_displayed: displayed_response.as_deref(),
+            backend_response_error,
+            success: backend_response_error.is_none(),
+        });
+    }
+
+    async fn log_session_close(&self, session_id: &str, message: &str, exit_point: &str) {
+        let session_lock = match self.session_manager.get_session(session_id).await {
+            Some(session_lock) => session_lock,
+            None => return,
+        };
+
+        let session_data = session_lock.read().await;
+        let username = session_data.username.clone();
+        let started_at = session_data.started_at;
+        drop(session_data);
+
+        let duration_secs = Utc::now()
+            .signed_duration_since(started_at)
+            .num_milliseconds() as f64
+            / 1000.0;
+
+        let logger = self.session_manager.get_logger();
+        let logger_guard = logger.lock().await;
+        logger_guard.log_session_close("0.0.0.0", 0, &username, duration_secs, message);
+        drop(logger_guard);
+
+        info!(
+            "[SESSION EXIT] session_id={} user={} exit_point={}",
+            session_id, username, exit_point
+        );
     }
 }
 

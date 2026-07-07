@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use log::warn;
 use serde_json::json;
 use std::fs::OpenOptions;
@@ -6,6 +6,21 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+pub struct CommandLogEvent<'a> {
+    pub src_ip: &'a str,
+    pub src_port: u16,
+    pub username: &'a str,
+    pub command: &'a str,
+    pub cwd: &'a str,
+    pub input_timestamp: DateTime<Utc>,
+    pub response_timestamp: DateTime<Utc>,
+    pub response_latency_ms: i64,
+    pub backend_response_raw: Option<&'a str>,
+    pub backend_response_displayed: Option<&'a str>,
+    pub backend_response_error: Option<&'a str>,
+    pub success: bool,
+}
 
 pub struct SessionLogger {
     log_path: String,
@@ -50,23 +65,23 @@ impl SessionLogger {
         }
     }
 
-    pub fn log_command_event(
-        &self,
-        src_ip: &str,
-        src_port: u16,
-        username: &str,
-        command: &str,
-        cwd: &str,
-    ) {
+    pub fn log_command_event(&self, event: &CommandLogEvent<'_>) {
         let log_entry = json!({
-            "timestamp": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "timestamp": event.input_timestamp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             "type": "ReverSSH",
             "eventid": "reverssh.command.input",
-            "src_ip": src_ip,
-            "src_port": src_port,
-            "username": username,
-            "command": command,
-            "cwd": cwd,
+            "src_ip": event.src_ip,
+            "src_port": event.src_port,
+            "username": event.username,
+            "command": event.command,
+            "cwd": event.cwd,
+            "input_timestamp": event.input_timestamp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "response_timestamp": event.response_timestamp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "response_latency_ms": event.response_latency_ms,
+            "backend_response_raw": event.backend_response_raw,
+            "backend_response_displayed": event.backend_response_displayed,
+            "backend_response_error": event.backend_response_error,
+            "success": event.success,
             "protocol": "ssh",
         });
 
