@@ -13,6 +13,13 @@ use tokio::time::{Duration, timeout};
 use crate::client::connection::Client;
 use crate::config::app::{AuthType, BackendConfig};
 
+#[derive(Debug, Clone)]
+pub struct CommandExecutionResult {
+    pub raw_output: Vec<u8>,
+    pub displayed_output: Vec<u8>,
+    pub cwd: Option<String>,
+}
+
 lazy_static! {
     static ref ANSI_ESCAPE_RE: Regex =
         Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").expect("Invalid regex pattern");
@@ -148,7 +155,7 @@ impl BackendConnection {
         }
     }
 
-    pub async fn execute_command(&self, cmd: &str) -> Result<(Vec<u8>, Option<String>)> {
+    pub async fn execute_command(&self, cmd: &str) -> Result<CommandExecutionResult> {
         let mut channel_lock = self.channel.lock().await;
         let channel = channel_lock.as_mut().context("Channel not opened")?;
 
@@ -194,9 +201,14 @@ impl BackendConnection {
         drop(channel_lock);
 
         let cwd = Self::extract_cwd_from_output(&output);
+        let raw_output = output;
+        let displayed_output = Self::clean_output(&raw_output, cmd);
 
-        let command_output = Self::clean_output(&output, cmd);
-        Ok((command_output, cwd))
+        Ok(CommandExecutionResult {
+            raw_output,
+            displayed_output,
+            cwd,
+        })
     }
 
     fn has_prompt(data: &[u8]) -> bool {

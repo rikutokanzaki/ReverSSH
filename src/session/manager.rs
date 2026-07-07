@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use log::{debug, info, warn};
 use russh::ChannelId;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ pub struct SessionData {
     pub username: String,
     pub password: String,
     pub client_channel: ChannelId,
+    pub started_at: DateTime<Utc>,
     pub backend: Option<Arc<BackendConnection>>,
     pub terminal_state: TerminalState,
     pub logger: SharedLogger,
@@ -51,6 +53,7 @@ impl SessionManager {
             username: username.clone(),
             password,
             client_channel,
+            started_at: Utc::now(),
             backend: None,
             terminal_state: TerminalState::new(),
             logger: self.logger.clone(),
