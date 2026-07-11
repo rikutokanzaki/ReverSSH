@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 use crate::backend::handler::BackendConnection;
 use crate::session::logger::SharedLogger;
@@ -42,12 +41,11 @@ impl SessionManager {
 
     pub async fn create_session(
         &self,
+        session_id: SessionId,
         username: String,
         password: String,
         client_channel: ChannelId,
     ) -> Result<SessionId> {
-        let session_id = Uuid::new_v4().to_string();
-
         let session_data = SessionData {
             session_id: session_id.clone(),
             username: username.clone(),
@@ -142,7 +140,7 @@ impl SessionManager {
             .context("Session not found")?;
 
         let mut session = session_lock.write().await;
-        let cmd_info = CmdInfo::new(session.username.clone(), cmd);
+        let cmd_info = CmdInfo::new_with_generated_id(session.username.clone(), cmd);
         session.terminal_state.push_cmd(cmd_info);
 
         Ok(())

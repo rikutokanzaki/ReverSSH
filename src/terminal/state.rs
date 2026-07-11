@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowSize {
@@ -16,6 +17,7 @@ impl WindowSize {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CmdInfo {
+    pub command_id: String,
     pub window_size_at_exec: Option<WindowSize>,
     pub username: String,
     pub cwd: Option<PathBuf>,
@@ -31,14 +33,19 @@ pub struct TerminalState {
 }
 
 impl CmdInfo {
-    pub fn new<S: Into<String>>(username: S, cmd: S) -> Self {
+    pub fn new<S: Into<String>>(command_id: String, username: S, cmd: S) -> Self {
         Self {
+            command_id,
             window_size_at_exec: None,
             username: username.into(),
             cmd: cmd.into(),
             cwd: None,
             ts: Utc::now(),
         }
+    }
+
+    pub fn new_with_generated_id<S: Into<String>>(username: S, cmd: S) -> Self {
+        Self::new(Uuid::new_v4().to_string(), username, cmd)
     }
 }
 

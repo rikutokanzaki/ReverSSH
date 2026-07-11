@@ -1,4 +1,5 @@
 use chrono::Utc;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -6,6 +7,7 @@ use log::{error, info, warn};
 use russh::MethodKind;
 use russh::server::{self, Auth, Msg, Session};
 use russh::{Channel, ChannelId, MethodSet};
+use uuid::Uuid;
 
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
@@ -22,12 +24,14 @@ pub struct ProxyServer {
     session_manager: Arc<SessionManager>,
     backend_pool: Arc<BackendPool>,
     detector: Arc<dyn Detector>,
+    peer_addr: Option<SocketAddr>,
 
     accept_any: bool,
     authenticator: Option<Arc<FileBasedAuthenticator>>,
     motd: String,
 
     session_id: Option<SessionId>,
+    session_created: bool,
     username: Option<String>,
     password: Option<String>,
     shell_active: bool,
@@ -42,6 +46,7 @@ impl ProxyServer {
         session_manager: Arc<SessionManager>,
         backend_pool: Arc<BackendPool>,
         detector: Arc<dyn Detector>,
+        peer_addr: Option<SocketAddr>,
         accept_any: bool,
         authenticator: Option<Arc<FileBasedAuthenticator>>,
         motd: String,
@@ -53,10 +58,12 @@ impl ProxyServer {
             session_manager,
             backend_pool,
             detector,
+            peer_addr,
             accept_any,
             authenticator,
             motd,
-            session_id: None,
+            session_id: Some(Uuid::new_v4().to_string()),
+            session_created: false,
             username: None,
             password: None,
             shell_active: false,
@@ -114,13 +121,19 @@ impl server::Handler for ProxyServer {
             false
         };
 
+        let session_id = self.session_id.as_deref().unwrap_or("unknown");
+        let (src_ip, src_port) = self.client_address();
+        let (dest_ip, dest_port) = self.server_address();
+
         if is_allowed {
             self.username = Some(user.to_string());
             self.password = Some(password.to_string());
 
             let logger = self.session_manager.get_logger();
             let logger_guard = logger.lock().await;
-            logger_guard.log_auth_event("0.0.0.0", 0, "127.0.0.1", 22, user, password, true);
+            logger_guard.log_auth_event(
+                session_id, &src_ip, src_port, &dest_ip, dest_port, user, password, true,
+            );
             drop(logger_guard);
 
             info!("[AUTH SUCCESS] user={} password={}", user, password);
@@ -129,7 +142,9 @@ impl server::Handler for ProxyServer {
 
         let logger = self.session_manager.get_logger();
         let logger_guard = logger.lock().await;
-        logger_guard.log_auth_event("0.0.0.0", 0, "127.0.0.1", 22, user, password, false);
+        logger_guard.log_auth_event(
+            session_id, &src_ip, src_port, &dest_ip, dest_port, user, password, false,
+        );
         drop(logger_guard);
 
         info!("[AUTH REJECTED] user={} password={}", user, password);
@@ -170,13 +185,24 @@ impl server::Handler for ProxyServer {
         self.shell_active = true;
 
         if let (Some(username), Some(password)) = (self.username.as_ref(), self.password.as_ref()) {
+            let session_id = self
+                .session_id
+                .clone()
+                .expect("session id must exist for accepted connections");
+
             match self
                 .session_manager
-                .create_session(username.clone(), password.clone(), channel)
+                .create_session(
+                    session_id.clone(),
+                    username.clone(),
+                    password.clone(),
+                    channel,
+                )
                 .await
             {
                 Ok(session_id) => {
                     self.session_id = Some(session_id.clone());
+                    self.session_created = true;
                     info!("Session {} created for user {}", session_id, username);
                     info!(
                         "[SESSION START - SHELL] session_id={} user={}",
@@ -230,11 +256,19 @@ impl server::Handler for ProxyServer {
 
         let session_id = match self
             .session_manager
-            .create_session(username.clone(), password.clone(), channel)
+            .create_session(
+                self.session_id
+                    .clone()
+                    .expect("session id must exist for accepted connections"),
+                username.clone(),
+                password.clone(),
+                channel,
+            )
             .await
         {
             Ok(session_id) => {
                 info!("Exec session {} created for user {}", session_id, username);
+                self.session_created = true;
                 info!(
                     "[SESSION START - EXEC] session_id={} user={} command={}",
                     session_id, username, command
@@ -382,16 +416,20 @@ impl server::Handler for ProxyServer {
         _channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(ref session_id) = self.session_id {
-            self.log_session_close(session_id, "Channel closed", "channel_close")
-                .await;
+        if self.session_created {
+            if let Some(ref session_id) = self.session_id {
+                self.log_session_close(session_id, "Channel closed", "channel_close")
+                    .await;
 
-            if let Err(e) = self.session_manager.remove_session(session_id).await {
-                error!(
-                    "Failed to remove session {} on channel close: {:?}",
-                    session_id, e
-                );
+                if let Err(e) = self.session_manager.remove_session(session_id).await {
+                    error!(
+                        "Failed to remove session {} on channel close: {:?}",
+                        session_id, e
+                    );
+                }
             }
+
+            self.session_created = false;
             self.session_id = None;
         }
 
@@ -485,17 +523,21 @@ impl ProxyServer {
     }
 
     async fn handle_exit_command(&mut self, channel: ChannelId, session: &mut Session) -> bool {
-        if let Some(ref session_id) = self.session_id {
-            self.log_session_close(session_id, "Client requested exit", "exit_command")
-                .await;
+        if self.session_created {
+            if let Some(ref session_id) = self.session_id {
+                self.log_session_close(session_id, "Client requested exit", "exit_command")
+                    .await;
 
-            if let Ok(backend) = self.session_manager.get_backend(session_id).await {
-                let _ = backend.close().await;
+                if let Ok(backend) = self.session_manager.get_backend(session_id).await {
+                    let _ = backend.close().await;
+                }
+
+                if let Err(e) = self.session_manager.remove_session(session_id).await {
+                    error!("Failed to remove session {}: {:?}", session_id, e);
+                }
             }
 
-            if let Err(e) = self.session_manager.remove_session(session_id).await {
-                error!("Failed to remove session {}: {:?}", session_id, e);
-            }
+            self.session_created = false;
             self.session_id = None;
         }
 
@@ -903,6 +945,12 @@ impl ProxyServer {
             .as_ref()
             .map(|cmd_info| cmd_info.ts)
             .unwrap_or(response_timestamp);
+        let command_id = session_data
+            .terminal_state
+            .last_cmd
+            .as_ref()
+            .map(|cmd_info| cmd_info.command_id.clone())
+            .unwrap_or_else(|| "unknown".to_string());
         drop(session_data);
 
         let raw_response =
@@ -915,9 +963,12 @@ impl ProxyServer {
 
         let logger = self.session_manager.get_logger();
         let logger_guard = logger.lock().await;
+        let (src_ip, src_port) = self.client_address();
         logger_guard.log_command_event(&CommandLogEvent {
-            src_ip: "0.0.0.0",
-            src_port: 0,
+            session_id,
+            command_id: &command_id,
+            src_ip: &src_ip,
+            src_port,
             username: &username,
             command,
             cwd: &cwd,
@@ -932,6 +983,10 @@ impl ProxyServer {
     }
 
     async fn log_session_close(&self, session_id: &str, message: &str, exit_point: &str) {
+        if !self.session_created {
+            return;
+        }
+
         let session_lock = match self.session_manager.get_session(session_id).await {
             Some(session_lock) => session_lock,
             None => return,
@@ -949,13 +1004,34 @@ impl ProxyServer {
 
         let logger = self.session_manager.get_logger();
         let logger_guard = logger.lock().await;
-        logger_guard.log_session_close("0.0.0.0", 0, &username, duration_secs, message);
+        let (src_ip, src_port) = self.client_address();
+        logger_guard.log_session_close(
+            session_id,
+            &src_ip,
+            src_port,
+            &username,
+            duration_secs,
+            message,
+        );
         drop(logger_guard);
 
         info!(
             "[SESSION EXIT] session_id={} user={} exit_point={}",
             session_id, username, exit_point
         );
+    }
+
+    fn client_address(&self) -> (String, u16) {
+        self.peer_addr
+            .map(|addr| (addr.ip().to_string(), addr.port()))
+            .unwrap_or_else(|| ("unknown".to_string(), 0))
+    }
+
+    fn server_address(&self) -> (String, u16) {
+        (
+            self.config.server.listen_addr.ip().to_string(),
+            self.config.server.listen_addr.port(),
+        )
     }
 }
 
@@ -1018,12 +1094,13 @@ impl ProxyServerFactory {
 impl server::Server for ProxyServerFactory {
     type Handler = ProxyServer;
 
-    fn new_client(&mut self, _peer_addr: Option<std::net::SocketAddr>) -> Self::Handler {
+    fn new_client(&mut self, peer_addr: Option<std::net::SocketAddr>) -> Self::Handler {
         ProxyServer::new(
             self.config.clone(),
             self.session_manager.clone(),
             self.backend_pool.clone(),
             self.detector.clone(),
+            peer_addr,
             self.accept_any,
             self.authenticator.clone(),
             self.motd.clone(),

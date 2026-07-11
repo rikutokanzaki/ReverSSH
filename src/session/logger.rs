@@ -8,6 +8,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct CommandLogEvent<'a> {
+    pub session_id: &'a str,
+    pub command_id: &'a str,
     pub src_ip: &'a str,
     pub src_port: u16,
     pub username: &'a str,
@@ -28,6 +30,7 @@ struct AuthLogEntry<'a> {
     #[serde(rename = "type")]
     event_type: &'a str,
     eventid: &'a str,
+    session_id: &'a str,
     src_ip: &'a str,
     src_port: u16,
     dest_ip: &'a str,
@@ -44,6 +47,8 @@ struct CommandLogEntry<'a> {
     #[serde(rename = "type")]
     event_type: &'a str,
     eventid: &'a str,
+    session_id: &'a str,
+    command_id: &'a str,
     src_ip: &'a str,
     src_port: u16,
     username: &'a str,
@@ -65,6 +70,7 @@ struct SessionCloseLogEntry<'a> {
     #[serde(rename = "type")]
     event_type: &'a str,
     eventid: &'a str,
+    session_id: &'a str,
     src_ip: &'a str,
     src_port: u16,
     username: &'a str,
@@ -89,6 +95,7 @@ impl SessionLogger {
 
     pub fn log_auth_event(
         &self,
+        session_id: &str,
         src_ip: &str,
         src_port: u16,
         dest_ip: &str,
@@ -101,6 +108,7 @@ impl SessionLogger {
             timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             event_type: "ReverSSH",
             eventid: "reverssh.login.attempt",
+            session_id,
             src_ip,
             src_port,
             dest_ip,
@@ -123,6 +131,8 @@ impl SessionLogger {
                 .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             event_type: "ReverSSH",
             eventid: "reverssh.command.input",
+            session_id: event.session_id,
+            command_id: event.command_id,
             src_ip: event.src_ip,
             src_port: event.src_port,
             username: event.username,
@@ -149,6 +159,7 @@ impl SessionLogger {
 
     pub fn log_session_close(
         &self,
+        session_id: &str,
         src_ip: &str,
         src_port: u16,
         username: &str,
@@ -159,6 +170,7 @@ impl SessionLogger {
             timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             event_type: "ReverSSH",
             eventid: "reverssh.session.close",
+            session_id,
             src_ip,
             src_port,
             username,
