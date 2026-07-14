@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use log::{info, warn};
 use regex::Regex;
@@ -14,10 +15,21 @@ use crate::client::connection::Client;
 use crate::config::app::{AuthType, BackendConfig};
 
 #[derive(Debug, Clone)]
+pub enum CommandEndReason {
+    Prompt,
+    ExitStatus,
+    Eof,
+    Timeout,
+}
+
 pub struct CommandExecutionResult {
     pub raw_output: Vec<u8>,
     pub displayed_output: Vec<u8>,
     pub cwd: Option<String>,
+    pub first_response_timestamp: chrono::DateTime<Utc>,
+    pub first_response_latency_ms: i64,
+    pub end_reason: CommandEndReason,
+    pub prompt_returned: bool,
 }
 
 lazy_static! {
@@ -160,6 +172,9 @@ impl BackendConnection {
         let channel = channel_lock.as_mut().context("Channel not opened")?;
 
         let cmd_with_newline = format!("{}\n", cmd.trim_end());
+
+        let start = std::time::Instant::now();
+
         channel
             .data(cmd_with_newline.as_bytes())
             .await
@@ -168,22 +183,38 @@ impl BackendConnection {
         let mut output = Vec::new();
         let read_timeout = Duration::from_secs(300);
 
+        let mut first_response_latency: Option<i64> = None;
+        let mut first_response_timestamp: Option<DateTime<Utc>> = None;
+
+        let mut end_reason = CommandEndReason::Timeout;
+
         loop {
             match timeout(read_timeout, channel.wait()).await {
                 Ok(Some(msg)) => match msg {
                     ChannelMsg::Data { ref data } => {
                         output.extend_from_slice(data);
 
+                        if first_response_latency.is_none() {
+                            let displayed = Self::clean_output(&output, cmd);
+
+                            if !displayed.is_empty() {
+                                first_response_latency = Some(start.elapsed().as_millis() as i64);
+                                first_response_timestamp = Some(Utc::now());
+                            }
+                        }
+
                         if Self::has_prompt(&output) {
+                            end_reason = CommandEndReason::Prompt;
                             break;
                         }
                     }
                     ChannelMsg::Eof => {
-                        warn!("Channel EOF while reading command output");
+                        end_reason = CommandEndReason::Eof;
                         break;
                     }
                     ChannelMsg::ExitStatus { exit_status } => {
-                        warn!("Channel exit status: {}", exit_status);
+                        warn!("Exit status: {}", exit_status);
+                        end_reason = CommandEndReason::ExitStatus;
                         break;
                     }
                     _ => {}
@@ -192,7 +223,8 @@ impl BackendConnection {
                     break;
                 }
                 Err(_) => {
-                    warn!("Timeout reading command output");
+                    warn!("Timeout");
+                    end_reason = CommandEndReason::Timeout;
                     break;
                 }
             }
@@ -208,6 +240,11 @@ impl BackendConnection {
             raw_output,
             displayed_output,
             cwd,
+            first_response_timestamp: first_response_timestamp.unwrap_or(Utc::now()),
+            first_response_latency_ms: first_response_latency
+                .unwrap_or(start.elapsed().as_millis() as i64),
+            prompt_returned: matches!(end_reason, CommandEndReason::Prompt),
+            end_reason,
         })
     }
 
@@ -301,7 +338,7 @@ impl BackendConnection {
             .context("Failed to send buffer and tab")?;
 
         let mut output = Vec::new();
-        let read_timeout = Duration::from_millis(500);
+        let read_timeout = Duration::from_secs(300);
 
         loop {
             match timeout(read_timeout, channel.wait()).await {

@@ -9,6 +9,7 @@ use russh::server::{self, Auth, Msg, Session};
 use russh::{Channel, ChannelId, MethodSet};
 use uuid::Uuid;
 
+use crate::backend::handler::CommandEndReason;
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
 use crate::proxy::authenticator::{Authentication, FileBasedAuthenticator};
@@ -602,7 +603,9 @@ impl ProxyServer {
             Err(e) => {
                 let error_message = e.to_string();
                 error!("Failed to establish backend connection: {:?}", e);
+
                 self.send_error_and_prompt(channel, session, "Failed to connect to backend\r\n");
+
                 self.log_command_execution(
                     session_id,
                     command,
@@ -611,6 +614,9 @@ impl ProxyServer {
                     Some(error_message.as_str()),
                     None,
                     Utc::now(),
+                    0,
+                    false,
+                    &CommandEndReason::ExitStatus,
                 )
                 .await;
 
@@ -624,7 +630,6 @@ impl ProxyServer {
                     .send_data(channel, session, &result.displayed_output);
                 let response_cwd = result.cwd.clone();
 
-                let response_timestamp = Utc::now();
                 self.log_command_execution(
                     session_id,
                     command,
@@ -632,7 +637,10 @@ impl ProxyServer {
                     Some(&result.displayed_output),
                     None,
                     response_cwd.as_deref(),
-                    response_timestamp,
+                    result.first_response_timestamp,
+                    result.first_response_latency_ms,
+                    result.prompt_returned,
+                    &result.end_reason,
                 )
                 .await;
 
@@ -657,6 +665,9 @@ impl ProxyServer {
                     Some(error_message.as_str()),
                     None,
                     Utc::now(),
+                    0,
+                    false,
+                    &CommandEndReason::ExitStatus,
                 )
                 .await;
             }
@@ -797,6 +808,9 @@ impl ProxyServer {
                     Some(error_message.as_str()),
                     None,
                     Utc::now(),
+                    0,
+                    false,
+                    &CommandEndReason::ExitStatus,
                 )
                 .await;
                 let _ = session.exit_status_request(channel, 1);
@@ -813,7 +827,6 @@ impl ProxyServer {
                     .send_data(channel, session, &result.displayed_output);
                 let response_cwd = result.cwd.clone();
 
-                let response_timestamp = Utc::now();
                 self.log_command_execution(
                     session_id,
                     command,
@@ -821,7 +834,10 @@ impl ProxyServer {
                     Some(&result.displayed_output),
                     None,
                     response_cwd.as_deref(),
-                    response_timestamp,
+                    result.first_response_timestamp,
+                    result.first_response_latency_ms,
+                    result.prompt_returned,
+                    &result.end_reason,
                 )
                 .await;
 
@@ -899,6 +915,9 @@ impl ProxyServer {
                     Some(error_message.as_str()),
                     None,
                     Utc::now(),
+                    0,
+                    false,
+                    &CommandEndReason::ExitStatus,
                 )
                 .await;
                 let _ = session.exit_status_request(channel, 1);
@@ -921,6 +940,9 @@ impl ProxyServer {
         backend_response_error: Option<&str>,
         cwd_override: Option<&str>,
         response_timestamp: chrono::DateTime<Utc>,
+        response_latency_ms: i64,
+        prompt_returned: bool,
+        end_reason: &CommandEndReason,
     ) {
         let session_lock = match self.session_manager.get_session(session_id).await {
             Some(session_lock) => session_lock,
@@ -957,13 +979,11 @@ impl ProxyServer {
             backend_response_raw.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
         let displayed_response =
             backend_response_displayed.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
-        let response_latency_ms = response_timestamp
-            .signed_duration_since(input_timestamp)
-            .num_milliseconds();
 
         let logger = self.session_manager.get_logger();
         let logger_guard = logger.lock().await;
         let (src_ip, src_port) = self.client_address();
+
         logger_guard.log_command_event(&CommandLogEvent {
             session_id,
             command_id: &command_id,
@@ -975,6 +995,13 @@ impl ProxyServer {
             input_timestamp,
             response_timestamp,
             response_latency_ms,
+            prompt_returned,
+            end_reason: match end_reason {
+                CommandEndReason::Prompt => "prompt",
+                CommandEndReason::ExitStatus => "exit_status",
+                CommandEndReason::Eof => "eof",
+                CommandEndReason::Timeout => "timeout",
+            },
             backend_response_raw: raw_response.as_deref(),
             backend_response_displayed: displayed_response.as_deref(),
             backend_response_error,
