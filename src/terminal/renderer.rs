@@ -1,3 +1,4 @@
+use log::warn;
 use russh::ChannelId;
 use russh::keys::ssh_encoding::bytes::Bytes;
 use russh::server::Session;
@@ -79,7 +80,9 @@ impl Renderer {
             out.extend_from_slice(b"\r\n");
         }
         self.send_data(channel, session, &out);
-        let _ = session.close(channel);
+        if let Err(e) = session.close(channel) {
+            warn!("Failed to close channel after cleaning terminal: {:?}", e);
+        }
     }
 }
 

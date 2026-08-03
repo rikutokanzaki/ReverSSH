@@ -1,7 +1,7 @@
 use anyhow::Result;
 use russh::SshId;
 use russh::server::Config as SshConfig;
-use russh::server::Server as _;
+use russh::server::Server;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;

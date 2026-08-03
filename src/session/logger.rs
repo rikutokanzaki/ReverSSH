@@ -90,7 +90,9 @@ pub struct SessionLogger {
 impl SessionLogger {
     pub fn new(log_path: &str) -> Self {
         if let Some(parent) = Path::new(log_path).parent() {
-            let _ = std::fs::create_dir_all(parent);
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                warn!("Failed to create log directory {}: {}", parent.display(), e);
+            }
         }
         Self {
             log_path: log_path.to_string(),

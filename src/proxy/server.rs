@@ -1,3 +1,4 @@
+use anyhow::Context;
 use chrono::Utc;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ use russh::server::{self, Auth, Msg, Session};
 use russh::{Channel, ChannelId, MethodSet};
 use uuid::Uuid;
 
-use crate::backend::handler::CommandEndReason;
+use crate::backend::handler::{CommandEndReason, CommandExecutionResult};
 use crate::backend::pool::BackendPool;
 use crate::config::AppConfig;
 use crate::proxy::authenticator::{Authentication, FileBasedAuthenticator};
@@ -17,6 +18,7 @@ use crate::proxy::motd::return_motd;
 use crate::router::migration::Detector;
 use crate::session::logger::CommandLogEvent;
 use crate::session::manager::{SessionId, SessionManager};
+use crate::terminal::parser::TerminalOutputParser;
 use crate::terminal::reader::{InputEvent, LineReader};
 use crate::terminal::renderer::Renderer;
 
@@ -39,6 +41,12 @@ pub struct ProxyServer {
     exec_mode: bool,
     reader: LineReader,
     renderer: Renderer,
+}
+
+#[derive(Copy, Clone)]
+enum CommandExecutionMode {
+    Shell,
+    Exec,
 }
 
 impl ProxyServer {
@@ -174,7 +182,7 @@ impl server::Handler for ProxyServer {
         _modes: &[(russh::Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let _ = session.channel_success(channel);
+        self.confirm_channel(channel, session, "pty_request");
         Ok(())
     }
 
@@ -216,7 +224,7 @@ impl server::Handler for ProxyServer {
             }
         }
 
-        let _ = session.channel_success(channel);
+        self.confirm_channel(channel, session, "shell_request");
 
         self.renderer.send_newline(channel, session);
 
@@ -247,9 +255,8 @@ impl server::Handler for ProxyServer {
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
 
-                let _ = session.exit_status_request(channel, 1);
-                let _ = session.eof(channel);
-                let _ = session.close(channel);
+                self.terminate_channel(channel, session, 1, "exec_auth_required")
+                    .await;
 
                 return Ok(());
             }
@@ -284,9 +291,8 @@ impl server::Handler for ProxyServer {
                 let error_msg = "Failed to create session\r\n";
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
-                let _ = session.exit_status_request(channel, 1);
-                let _ = session.eof(channel);
-                let _ = session.close(channel);
+                self.terminate_channel(channel, session, 1, "exec_session_create_failed")
+                    .await;
 
                 return Ok(());
             }
@@ -302,7 +308,7 @@ impl server::Handler for ProxyServer {
             warn!("Failed to record command: {:?}", e);
         }
 
-        self.run_argument_command(channel, session, &session_id, &command)
+        self.handle_exec_request(channel, session, &session_id, &command)
             .await;
 
         Ok(())
@@ -330,7 +336,7 @@ impl server::Handler for ProxyServer {
             }
         }
 
-        let _ = session.channel_success(channel);
+        self.confirm_channel(channel, session, "window_change_request");
         Ok(())
     }
 
@@ -383,7 +389,7 @@ impl server::Handler for ProxyServer {
                 }
 
                 if let Some(session_id) = self.session_id.clone() {
-                    self.execute_and_handle_command(channel, session, &session_id, trimmed)
+                    self.handle_shell_command(channel, session, &session_id, trimmed)
                         .await;
                 }
             } else {
@@ -477,21 +483,46 @@ impl ProxyServer {
         self.session_manager.update_cwd(session_id, path).await
     }
 
-    fn send_error_and_prompt(
+    fn confirm_channel(&self, channel: ChannelId, session: &mut Session, context: &str) {
+        if let Err(e) = session.channel_success(channel) {
+            warn!("Failed to confirm channel in {}: {:?}", context, e);
+        }
+    }
+
+    async fn terminate_channel(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        exit_status: u32,
+        context: &str,
+    ) {
+        if let Err(e) = session.exit_status_request(channel, exit_status) {
+            warn!(
+                "Failed to send exit status for {} ({}): {:?}",
+                context, exit_status, e
+            );
+        }
+        if let Err(e) = session.eof(channel) {
+            warn!("Failed to send EOF for {}: {:?}", context, e);
+        }
+        if let Err(e) = session.close(channel) {
+            warn!("Failed to close channel for {}: {:?}", context, e);
+        }
+    }
+
+    async fn send_command_error(
         &mut self,
         channel: ChannelId,
         session: &mut Session,
+        mode: CommandExecutionMode,
         error_msg: &str,
     ) {
         self.renderer
             .send_data(channel, session, error_msg.as_bytes());
-        self.renderer.send_prompt(
-            channel,
-            session,
-            self.get_username(),
-            &self.config.server.name,
-            None,
-        );
+
+        if matches!(mode, CommandExecutionMode::Shell) {
+            self.send_prompt_with_cwd(channel, session).await;
+        }
     }
 
     async fn ensure_backend_connected(
@@ -512,7 +543,12 @@ impl ProxyServer {
             .await?;
 
         if let Some(cwd) = initial_cwd {
-            let _ = self.update_session_cwd(session_id, &cwd).await;
+            if let Err(e) = self.update_session_cwd(session_id, &cwd).await {
+                warn!(
+                    "Failed to update initial CWD for session {}: {:?}",
+                    session_id, e
+                );
+            }
         }
 
         info!("Backend connection established for session {}", session_id);
@@ -530,7 +566,12 @@ impl ProxyServer {
                     .await;
 
                 if let Ok(backend) = self.session_manager.get_backend(session_id).await {
-                    let _ = backend.close().await;
+                    if let Err(e) = backend.close().await {
+                        warn!(
+                            "Failed to close backend for session {} on exit: {:?}",
+                            session_id, e
+                        );
+                    }
                 }
 
                 if let Err(e) = self.session_manager.remove_session(session_id).await {
@@ -546,12 +587,144 @@ impl ProxyServer {
         true
     }
 
-    async fn handle_post_execution(
+    async fn handle_command_execution(
         &mut self,
         channel: ChannelId,
         session: &mut Session,
         session_id: &str,
-        _command: &str,
+        command: &str,
+        mode: CommandExecutionMode,
+    ) {
+        let backend = match self.ensure_backend_connected(session_id).await {
+            Ok(backend) => backend,
+            Err(e) => {
+                let error_message = e.to_string();
+                error!("Failed to establish backend connection: {:?}", e);
+
+                self.send_command_error(channel, session, mode, "Failed to connect to backend\r\n")
+                    .await;
+
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    None,
+                    None,
+                    Some(error_message.as_str()),
+                    None,
+                    Utc::now(),
+                    0,
+                    false,
+                    &CommandEndReason::ExitStatus,
+                )
+                .await;
+
+                if matches!(mode, CommandExecutionMode::Exec) {
+                    self.terminate_channel(channel, session, 1, "exec_backend_error")
+                        .await;
+                    info!(
+                        "[SESSION EXIT] session_id={} exit_point=exec_backend_error",
+                        session_id
+                    );
+                }
+
+                return;
+            }
+        };
+
+        match backend.execute_command(command).await {
+            Ok(result) => {
+                self.handle_command_success(channel, session, session_id, command, mode, result)
+                    .await;
+            }
+            Err(e) => {
+                error!("Command execution failed: {:?}", e);
+                let error_message = e.to_string();
+
+                self.send_command_error(channel, session, mode, "Command execution failed\r\n")
+                    .await;
+
+                self.log_command_execution(
+                    session_id,
+                    command,
+                    None,
+                    None,
+                    Some(error_message.as_str()),
+                    None,
+                    Utc::now(),
+                    0,
+                    false,
+                    &CommandEndReason::ExitStatus,
+                )
+                .await;
+
+                if matches!(mode, CommandExecutionMode::Exec) {
+                    self.terminate_channel(channel, session, 1, "exec_error")
+                        .await;
+                    info!(
+                        "[SESSION EXIT] session_id={} exit_point=exec_error error={:?}",
+                        session_id, e
+                    );
+                }
+            }
+        }
+    }
+
+    async fn handle_command_success(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+        session_id: &str,
+        command: &str,
+        mode: CommandExecutionMode,
+        result: CommandExecutionResult,
+    ) {
+        self.renderer
+            .send_data(channel, session, &result.displayed_output);
+        let response_cwd = result.cwd.clone();
+
+        self.log_command_execution(
+            session_id,
+            command,
+            Some(&result.raw_output),
+            Some(&result.displayed_output),
+            None,
+            response_cwd.as_deref(),
+            result.first_response_timestamp,
+            result.first_response_latency_ms,
+            result.prompt_returned,
+            &result.end_reason,
+        )
+        .await;
+
+        let cwd_str = response_cwd.as_ref().map(|cwd| cwd.as_str()).unwrap_or("/");
+
+        if let Some(session_lock) = self.session_manager.get_session(session_id).await {
+            let session_data = session_lock.read().await;
+            let username = session_data.username.clone();
+            drop(session_data);
+
+            info!(
+                "[COMMAND EXECUTED] session_id={} user={} cmd={} cwd={}",
+                session_id, username, command, cwd_str
+            );
+        }
+
+        if let Some(new_cwd) = response_cwd {
+            if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
+                warn!("Failed to update CWD: {:?}", e);
+            }
+        }
+
+        self.handle_detection_and_migration(channel, session, session_id, mode)
+            .await;
+    }
+
+    async fn handle_detection_and_migration(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+        session_id: &str,
+        mode: CommandExecutionMode,
     ) {
         if let Some(session_lock) = self.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
@@ -566,16 +739,31 @@ impl ProxyServer {
                         .map(|s| s.as_str())
                         .unwrap_or(target_backend.as_str());
 
-                    if resolved_backend != target_backend.as_str() {
-                        info!(
-                            "Detected attack pattern, migrating to: {} (mapped from {})",
-                            resolved_backend, target_backend
-                        );
-                    } else {
-                        info!(
-                            "Detected attack pattern, migrating to: {}",
-                            resolved_backend
-                        );
+                    match mode {
+                        CommandExecutionMode::Shell => {
+                            if resolved_backend != target_backend.as_str() {
+                                info!(
+                                    "Detected attack pattern, migrating to: {} (mapped from {})",
+                                    resolved_backend, target_backend
+                                );
+                            } else {
+                                info!(
+                                    "Detected attack pattern, migrating to: {}",
+                                    resolved_backend
+                                );
+                            }
+                        }
+                        CommandExecutionMode::Exec => {
+                            info!(
+                                "Detected attack pattern in exec mode, migrating to: {}{}",
+                                resolved_backend,
+                                if resolved_backend != target_backend.as_str() {
+                                    " (mapped)"
+                                } else {
+                                    ""
+                                }
+                            );
+                        }
                     }
 
                     if let Err(e) = self
@@ -588,88 +776,13 @@ impl ProxyServer {
             }
         }
 
-        self.send_prompt_with_cwd(channel, session).await;
-    }
-
-    async fn execute_and_handle_command(
-        &mut self,
-        channel: ChannelId,
-        session: &mut Session,
-        session_id: &str,
-        command: &str,
-    ) {
-        let backend = match self.ensure_backend_connected(session_id).await {
-            Ok(backend) => backend,
-            Err(e) => {
-                let error_message = e.to_string();
-                error!("Failed to establish backend connection: {:?}", e);
-
-                self.send_error_and_prompt(channel, session, "Failed to connect to backend\r\n");
-
-                self.log_command_execution(
-                    session_id,
-                    command,
-                    None,
-                    None,
-                    Some(error_message.as_str()),
-                    None,
-                    Utc::now(),
-                    0,
-                    false,
-                    &CommandEndReason::ExitStatus,
-                )
-                .await;
-
-                return;
+        match mode {
+            CommandExecutionMode::Shell => {
+                self.send_prompt_with_cwd(channel, session).await;
             }
-        };
-
-        match backend.execute_command(command).await {
-            Ok(result) => {
-                self.renderer
-                    .send_data(channel, session, &result.displayed_output);
-                let response_cwd = result.cwd.clone();
-
-                self.log_command_execution(
-                    session_id,
-                    command,
-                    Some(&result.raw_output),
-                    Some(&result.displayed_output),
-                    None,
-                    response_cwd.as_deref(),
-                    result.first_response_timestamp,
-                    result.first_response_latency_ms,
-                    result.prompt_returned,
-                    &result.end_reason,
-                )
-                .await;
-
-                if let Some(new_cwd) = response_cwd {
-                    if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
-                        warn!("Failed to update CWD: {:?}", e);
-                    }
-                }
-
-                self.handle_post_execution(channel, session, session_id, command)
+            CommandExecutionMode::Exec => {
+                self.terminate_channel(channel, session, 0, "exec_success")
                     .await;
-            }
-            Err(e) => {
-                error!("Command execution failed: {:?}", e);
-                self.send_error_and_prompt(channel, session, "Command execution failed\r\n");
-                let error_message = e.to_string();
-                self.log_command_execution(
-                    session_id,
-                    command,
-                    None,
-                    None,
-                    Some(error_message.as_str()),
-                    None,
-                    Utc::now(),
-                    0,
-                    false,
-                    &CommandEndReason::ExitStatus,
-                )
-                .await;
             }
         }
     }
@@ -681,8 +794,6 @@ impl ProxyServer {
         _channel: ChannelId,
         mut _session: &mut Session,
     ) -> anyhow::Result<()> {
-        use anyhow::Context;
-
         let session_lock = self
             .session_manager
             .get_session(session_id)
@@ -695,7 +806,12 @@ impl ProxyServer {
         };
 
         if let Ok(old_backend) = self.session_manager.get_backend(session_id).await {
-            let _ = old_backend.close().await;
+            if let Err(e) = old_backend.close().await {
+                warn!(
+                    "Failed to close old backend while migrating session {}: {:?}",
+                    session_id, e
+                );
+            }
         }
 
         let (new_backend, _initial_cwd) = self
@@ -716,7 +832,12 @@ impl ProxyServer {
 
             if let Ok(result) = new_backend.execute_command(&cd_cmd).await {
                 if let Some(verified_cwd) = result.cwd {
-                    let _ = self.update_session_cwd(session_id, &verified_cwd).await;
+                    if let Err(e) = self.update_session_cwd(session_id, &verified_cwd).await {
+                        warn!(
+                            "Failed to update migrated CWD for session {}: {:?}",
+                            session_id, e
+                        );
+                    }
                 }
             }
             info!("Reproduced CWD: {}", cwd.display());
@@ -743,9 +864,7 @@ impl ProxyServer {
 
         match backend.send_tab_completion(&current_buffer).await {
             Ok(output) => {
-                if let Some(completed_line) =
-                    crate::backend::handler::BackendConnection::extract_completed_line(&output)
-                {
+                if let Some(completed_line) = TerminalOutputParser::extract_completed_line(&output) {
                     self.reader.replace_buffer(completed_line);
                 } else {
                     warn!("Tab completion: no change detected");
@@ -785,150 +904,38 @@ impl ProxyServer {
         }
     }
 
-    async fn run_argument_command(
+    async fn handle_shell_command(
         &mut self,
         channel: ChannelId,
         session: &mut Session,
         session_id: &str,
         command: &str,
     ) {
-        let backend = match self.ensure_backend_connected(session_id).await {
-            Ok(backend) => backend,
-            Err(e) => {
-                let error_message = e.to_string();
-                error!("Failed to establish backend connection: {:?}", e);
-                let error_msg = "Failed to connect to backend\r\n";
-                self.renderer
-                    .send_data(channel, session, error_msg.as_bytes());
-                self.log_command_execution(
-                    session_id,
-                    command,
-                    None,
-                    None,
-                    Some(error_message.as_str()),
-                    None,
-                    Utc::now(),
-                    0,
-                    false,
-                    &CommandEndReason::ExitStatus,
-                )
-                .await;
-                let _ = session.exit_status_request(channel, 1);
-                let _ = session.eof(channel);
-                let _ = session.close(channel);
+        self.handle_command_execution(
+            channel,
+            session,
+            session_id,
+            command,
+            CommandExecutionMode::Shell,
+        )
+        .await;
+    }
 
-                return;
-            }
-        };
-
-        match backend.execute_command(command).await {
-            Ok(result) => {
-                self.renderer
-                    .send_data(channel, session, &result.displayed_output);
-                let response_cwd = result.cwd.clone();
-
-                self.log_command_execution(
-                    session_id,
-                    command,
-                    Some(&result.raw_output),
-                    Some(&result.displayed_output),
-                    None,
-                    response_cwd.as_deref(),
-                    result.first_response_timestamp,
-                    result.first_response_latency_ms,
-                    result.prompt_returned,
-                    &result.end_reason,
-                )
-                .await;
-
-                let cwd_str = response_cwd.clone().unwrap_or_else(|| "/".to_string());
-
-                if let Some(session_lock) = self.session_manager.get_session(session_id).await {
-                    let session_data = session_lock.read().await;
-                    let username = session_data.username.clone();
-                    drop(session_data);
-
-                    info!(
-                        "[COMMAND EXECUTED] session_id={} user={} cmd={} cwd={}",
-                        session_id, username, command, cwd_str
-                    );
-                }
-
-                if let Some(new_cwd) = response_cwd {
-                    if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
-                        warn!("Failed to update CWD: {:?}", e);
-                    }
-                }
-
-                if let Some(session_lock) = self.session_manager.get_session(session_id).await {
-                    let session_data = session_lock.read().await;
-
-                    if let Some(ref cmd_info) = session_data.terminal_state.last_cmd {
-                        if let Some(target_backend) = self.detector.detect(cmd_info) {
-                            drop(session_data);
-                            let resolved_backend = self
-                                .config
-                                .migration
-                                .get(target_backend.as_str())
-                                .map(|s| s.as_str())
-                                .unwrap_or(target_backend.as_str());
-
-                            info!(
-                                "Detected attack pattern in exec mode, migrating to: {}{}",
-                                resolved_backend,
-                                if resolved_backend != target_backend.as_str() {
-                                    " (mapped)"
-                                } else {
-                                    ""
-                                }
-                            );
-
-                            if let Err(e) = self
-                                .perform_migration(session_id, resolved_backend, channel, session)
-                                .await
-                            {
-                                error!("Migration failed: {:?}", e);
-                            }
-                        }
-                    }
-                }
-
-                let _ = session.exit_status_request(channel, 0);
-                let _ = session.eof(channel);
-                info!(
-                    "[SESSION EXIT] session_id={} exit_point=exec_success",
-                    session_id
-                );
-                let _ = session.close(channel);
-            }
-            Err(e) => {
-                error!("Command execution failed: {:?}", e);
-                let error_msg = "Command execution failed\r\n";
-                self.renderer
-                    .send_data(channel, session, error_msg.as_bytes());
-                let error_message = e.to_string();
-                self.log_command_execution(
-                    session_id,
-                    command,
-                    None,
-                    None,
-                    Some(error_message.as_str()),
-                    None,
-                    Utc::now(),
-                    0,
-                    false,
-                    &CommandEndReason::ExitStatus,
-                )
-                .await;
-                let _ = session.exit_status_request(channel, 1);
-                let _ = session.eof(channel);
-                info!(
-                    "[SESSION EXIT] session_id={} exit_point=exec_error error={:?}",
-                    session_id, e
-                );
-                let _ = session.close(channel);
-            }
-        }
+    async fn handle_exec_request(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+        session_id: &str,
+        command: &str,
+    ) {
+        self.handle_command_execution(
+            channel,
+            session,
+            session_id,
+            command,
+            CommandExecutionMode::Exec,
+        )
+        .await;
     }
 
     async fn log_command_execution(

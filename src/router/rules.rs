@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::router::migration::{CompositeDetector, Detector, KeywordDetector, RegexDetector};
+use crate::router::migration::{CompositeDetector, Detector};
 
 pub fn build_detector() -> Arc<dyn Detector> {
     Arc::new(CompositeDetector {

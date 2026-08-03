@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::backend::handler::BackendConnection;
 use crate::session::logger::SharedLogger;
+use crate::session::logger::create_logger;
 use crate::terminal::state::{CmdInfo, TerminalState, WindowSize};
 
 pub type SessionId = String;
@@ -31,7 +32,6 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(log_path: String) -> Self {
-        use crate::session::logger::create_logger;
         let logger = create_logger(&log_path);
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
