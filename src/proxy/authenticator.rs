@@ -50,15 +50,10 @@ impl Authentication for FileBasedAuthenticator {
             }
 
             if let Some(denied) = rule_pass.strip_prefix('!') {
-                if password != denied {
-                    return Some(username.to_string());
-                }
-                continue;
+                return (password != denied).then(|| username.to_string());
             }
 
-            if password == rule_pass {
-                return Some(username.to_string());
-            }
+            return (password == rule_pass).then(|| username.to_string());
         }
 
         None
