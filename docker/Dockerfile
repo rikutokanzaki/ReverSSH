@@ -1,4 +1,4 @@
-FROM rust:1.94-slim AS builder
+FROM rust:slim AS builder
 
 WORKDIR /build
 
@@ -6,10 +6,10 @@ RUN apt-get update && \
   apt-get install -y pkg-config libssl-dev && \
   rm -rf /var/lib/apt/lists/*
 
-COPY Cargo.toml Cargo.lock* ./
+COPY Cargo.toml Cargo.lock* rust-toolchain.toml ./
 COPY src ./src
 
-RUN cargo build --release
+RUN cargo build --locked --release
 
 FROM ubuntu:24.04
 

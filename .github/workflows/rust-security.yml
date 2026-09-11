@@ -1,0 +1,40 @@
+name: Rust Security
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        run: |
+          RUST_VERSION="$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)"
+          test -n "$RUST_VERSION"
+          rustup toolchain install "${RUST_VERSION}" --profile minimal --no-self-update
+          rustup default "${RUST_VERSION}"
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit --locked
