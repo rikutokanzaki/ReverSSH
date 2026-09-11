@@ -89,16 +89,17 @@ pub struct SessionLogger {
 
 impl SessionLogger {
     pub fn new(log_path: &str) -> Self {
-        if let Some(parent) = Path::new(log_path).parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                warn!("Failed to create log directory {}: {}", parent.display(), e);
-            }
+        if let Some(parent) = Path::new(log_path).parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            warn!("Failed to create log directory {}: {}", parent.display(), e);
         }
         Self {
             log_path: log_path.to_string(),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn log_auth_event(
         &self,
         session_id: &str,
@@ -198,8 +199,7 @@ impl SessionLogger {
             .append(true)
             .open(&self.log_path)?;
 
-        let line = serde_json::to_string(entry)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
         writeln!(file, "{}", line)?;
         Ok(())
     }

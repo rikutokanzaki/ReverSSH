@@ -49,6 +49,12 @@ impl CmdInfo {
     }
 }
 
+impl Default for TerminalState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TerminalState {
     pub fn new() -> Self {
         Self {

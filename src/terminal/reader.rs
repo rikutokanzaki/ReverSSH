@@ -168,10 +168,10 @@ impl LineReader {
 
             // Right
             InputEvent::ArrowRight => {
-                if self.cursor < self.buffer.len() {
-                    if let Some(c) = self.buffer[self.cursor..].chars().next() {
-                        self.cursor += c.len_utf8();
-                    }
+                if self.cursor < self.buffer.len()
+                    && let Some(c) = self.buffer[self.cursor..].chars().next()
+                {
+                    self.cursor += c.len_utf8();
                 }
             }
 
@@ -200,12 +200,12 @@ impl LineReader {
 
             // Down
             InputEvent::ArrowDown => {
-                if let Some(pos) = self.history_pos {
-                    if pos < self.history.len() - 1 {
-                        self.history_pos = Some(pos + 1);
-                        self.buffer = self.history[pos + 1].clone();
-                        self.cursor = self.buffer.len();
-                    }
+                if let Some(pos) = self.history_pos
+                    && pos < self.history.len() - 1
+                {
+                    self.history_pos = Some(pos + 1);
+                    self.buffer = self.history[pos + 1].clone();
+                    self.cursor = self.buffer.len();
                 }
             }
 

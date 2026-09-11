@@ -50,6 +50,7 @@ enum CommandExecutionMode {
 }
 
 impl ProxyServer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<AppConfig>,
         session_manager: Arc<SessionManager>,
@@ -86,39 +87,33 @@ impl ProxyServer {
 impl server::Handler for ProxyServer {
     type Error = anyhow::Error;
 
-    fn auth_none(&mut self, _user: &str) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
-        async move {
-            Ok(Auth::Reject {
-                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
-                partial_success: false,
-            })
-        }
+    async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
+        Ok(Auth::Reject {
+            proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+            partial_success: false,
+        })
     }
 
-    fn auth_publickey_offered(
+    async fn auth_publickey_offered(
         &mut self,
         _user: &str,
         _public_key: &russh::keys::PublicKey,
-    ) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
-        async move {
-            Ok(Auth::Reject {
-                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
-                partial_success: false,
-            })
-        }
+    ) -> Result<Auth, Self::Error> {
+        Ok(Auth::Reject {
+            proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+            partial_success: false,
+        })
     }
 
-    fn auth_publickey(
+    async fn auth_publickey(
         &mut self,
         _user: &str,
         _public_key: &russh::keys::PublicKey,
-    ) -> impl Future<Output = Result<Auth, Self::Error>> + Send {
-        async move {
-            Ok(Auth::Reject {
-                proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
-                partial_success: false,
-            })
-        }
+    ) -> Result<Auth, Self::Error> {
+        Ok(Auth::Reject {
+            proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
+            partial_success: false,
+        })
     }
 
     async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
@@ -323,17 +318,16 @@ impl server::Handler for ProxyServer {
         _pix_height: u32,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(ref session_id) = self.session_id {
-            if let Err(e) = self
+        if let Some(ref session_id) = self.session_id
+            && let Err(e) = self
                 .session_manager
                 .update_window_size(session_id, col_width as u16, row_height as u16)
                 .await
-            {
-                warn!(
-                    "Failed to update window size for session {}: {:?}",
-                    session_id, e
-                );
-            }
+        {
+            warn!(
+                "Failed to update window size for session {}: {:?}",
+                session_id, e
+            );
         }
 
         self.confirm_channel(channel, session, "window_change_request");
@@ -366,14 +360,13 @@ impl server::Handler for ProxyServer {
 
                 let trimmed = line.trim();
 
-                if let Some(ref session_id) = self.session_id {
-                    if let Err(e) = self
+                if let Some(ref session_id) = self.session_id
+                    && let Err(e) = self
                         .session_manager
                         .push_command(session_id, trimmed.to_string())
                         .await
-                    {
-                        warn!("Failed to record command: {:?}", e);
-                    }
+                {
+                    warn!("Failed to record command: {:?}", e);
                 }
 
                 if trimmed.is_empty() {
@@ -542,13 +535,13 @@ impl ProxyServer {
             .set_backend(session_id, backend.clone())
             .await?;
 
-        if let Some(cwd) = initial_cwd {
-            if let Err(e) = self.update_session_cwd(session_id, &cwd).await {
-                warn!(
-                    "Failed to update initial CWD for session {}: {:?}",
-                    session_id, e
-                );
-            }
+        if let Some(cwd) = initial_cwd
+            && let Err(e) = self.update_session_cwd(session_id, &cwd).await
+        {
+            warn!(
+                "Failed to update initial CWD for session {}: {:?}",
+                session_id, e
+            );
         }
 
         info!("Backend connection established for session {}", session_id);
@@ -565,13 +558,13 @@ impl ProxyServer {
                 self.log_session_close(session_id, "Client requested exit", "exit_command")
                     .await;
 
-                if let Ok(backend) = self.session_manager.get_backend(session_id).await {
-                    if let Err(e) = backend.close().await {
-                        warn!(
-                            "Failed to close backend for session {} on exit: {:?}",
-                            session_id, e
-                        );
-                    }
+                if let Ok(backend) = self.session_manager.get_backend(session_id).await
+                    && let Err(e) = backend.close().await
+                {
+                    warn!(
+                        "Failed to close backend for session {} on exit: {:?}",
+                        session_id, e
+                    );
                 }
 
                 if let Err(e) = self.session_manager.remove_session(session_id).await {
@@ -696,7 +689,7 @@ impl ProxyServer {
         )
         .await;
 
-        let cwd_str = response_cwd.as_ref().map(|cwd| cwd.as_str()).unwrap_or("/");
+        let cwd_str = response_cwd.as_deref().unwrap_or("/");
 
         if let Some(session_lock) = self.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
@@ -709,10 +702,10 @@ impl ProxyServer {
             );
         }
 
-        if let Some(new_cwd) = response_cwd {
-            if let Err(e) = self.update_session_cwd(session_id, &new_cwd).await {
-                warn!("Failed to update CWD: {:?}", e);
-            }
+        if let Some(new_cwd) = response_cwd
+            && let Err(e) = self.update_session_cwd(session_id, &new_cwd).await
+        {
+            warn!("Failed to update CWD: {:?}", e);
         }
 
         self.handle_detection_and_migration(channel, session, session_id, mode)
@@ -729,49 +722,49 @@ impl ProxyServer {
         if let Some(session_lock) = self.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
 
-            if let Some(ref cmd_info) = session_data.terminal_state.last_cmd {
-                if let Some(target_backend) = self.detector.detect(cmd_info) {
-                    drop(session_data);
-                    let resolved_backend = self
-                        .config
-                        .migration
-                        .get(target_backend.as_str())
-                        .map(|s| s.as_str())
-                        .unwrap_or(target_backend.as_str());
+            if let Some(ref cmd_info) = session_data.terminal_state.last_cmd
+                && let Some(target_backend) = self.detector.detect(cmd_info)
+            {
+                drop(session_data);
+                let resolved_backend = self
+                    .config
+                    .migration
+                    .get(target_backend.as_str())
+                    .map(|s| s.as_str())
+                    .unwrap_or(target_backend.as_str());
 
-                    match mode {
-                        CommandExecutionMode::Shell => {
-                            if resolved_backend != target_backend.as_str() {
-                                info!(
-                                    "Detected attack pattern, migrating to: {} (mapped from {})",
-                                    resolved_backend, target_backend
-                                );
-                            } else {
-                                info!(
-                                    "Detected attack pattern, migrating to: {}",
-                                    resolved_backend
-                                );
-                            }
-                        }
-                        CommandExecutionMode::Exec => {
+                match mode {
+                    CommandExecutionMode::Shell => {
+                        if resolved_backend != target_backend.as_str() {
                             info!(
-                                "Detected attack pattern in exec mode, migrating to: {}{}",
-                                resolved_backend,
-                                if resolved_backend != target_backend.as_str() {
-                                    " (mapped)"
-                                } else {
-                                    ""
-                                }
+                                "Detected attack pattern, migrating to: {} (mapped from {})",
+                                resolved_backend, target_backend
+                            );
+                        } else {
+                            info!(
+                                "Detected attack pattern, migrating to: {}",
+                                resolved_backend
                             );
                         }
                     }
-
-                    if let Err(e) = self
-                        .perform_migration(session_id, resolved_backend, channel, session)
-                        .await
-                    {
-                        error!("Migration failed: {:?}", e);
+                    CommandExecutionMode::Exec => {
+                        info!(
+                            "Detected attack pattern in exec mode, migrating to: {}{}",
+                            resolved_backend,
+                            if resolved_backend != target_backend.as_str() {
+                                " (mapped)"
+                            } else {
+                                ""
+                            }
+                        );
                     }
+                }
+
+                if let Err(e) = self
+                    .perform_migration(session_id, resolved_backend, channel, session)
+                    .await
+                {
+                    error!("Migration failed: {:?}", e);
                 }
             }
         }
@@ -805,13 +798,13 @@ impl ProxyServer {
             session_data.terminal_state.cwd.clone()
         };
 
-        if let Ok(old_backend) = self.session_manager.get_backend(session_id).await {
-            if let Err(e) = old_backend.close().await {
-                warn!(
-                    "Failed to close old backend while migrating session {}: {:?}",
-                    session_id, e
-                );
-            }
+        if let Ok(old_backend) = self.session_manager.get_backend(session_id).await
+            && let Err(e) = old_backend.close().await
+        {
+            warn!(
+                "Failed to close old backend while migrating session {}: {:?}",
+                session_id, e
+            );
         }
 
         let (new_backend, _initial_cwd) = self
@@ -830,15 +823,14 @@ impl ProxyServer {
         if let Some(cwd) = current_cwd {
             let cd_cmd = format!("cd {}", cwd.display());
 
-            if let Ok(result) = new_backend.execute_command(&cd_cmd).await {
-                if let Some(verified_cwd) = result.cwd {
-                    if let Err(e) = self.update_session_cwd(session_id, &verified_cwd).await {
-                        warn!(
-                            "Failed to update migrated CWD for session {}: {:?}",
-                            session_id, e
-                        );
-                    }
-                }
+            if let Ok(result) = new_backend.execute_command(&cd_cmd).await
+                && let Some(verified_cwd) = result.cwd
+                && let Err(e) = self.update_session_cwd(session_id, &verified_cwd).await
+            {
+                warn!(
+                    "Failed to update migrated CWD for session {}: {:?}",
+                    session_id, e
+                );
             }
             info!("Reproduced CWD: {}", cwd.display());
         }
@@ -939,6 +931,7 @@ impl ProxyServer {
         .await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn log_command_execution(
         &self,
         session_id: &str,

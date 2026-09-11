@@ -29,12 +29,11 @@ impl TerminalOutputParser {
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
         let lines: Vec<&str> = ansi_stripped.lines().collect();
 
-        if let Some(last_line) = lines.last() {
-            if let Some(captures) = PROMPT_CWD_RE.captures(last_line) {
-                if let Some(cwd_match) = captures.get(1) {
-                    return Some(cwd_match.as_str().to_string());
-                }
-            }
+        if let Some(last_line) = lines.last()
+            && let Some(captures) = PROMPT_CWD_RE.captures(last_line)
+            && let Some(cwd_match) = captures.get(1)
+        {
+            return Some(cwd_match.as_str().to_string());
         }
 
         None
@@ -85,7 +84,7 @@ impl TerminalOutputParser {
             .collect();
 
         if let Some(last_line) = lines.last() {
-            if let Some(prompt_end) = last_line.find(|c| c == '$' || c == '#') {
+            if let Some(prompt_end) = last_line.find(['$', '#']) {
                 let command_part = last_line[prompt_end + 1..].trim_start();
                 return Some(command_part.to_string());
             }

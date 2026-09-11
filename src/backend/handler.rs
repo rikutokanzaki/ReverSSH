@@ -241,10 +241,10 @@ impl BackendConnection {
     }
 
     pub async fn close(&self) -> Result<()> {
-        if let Some(channel) = self.channel.lock().await.take() {
-            if let Err(e) = channel.eof().await {
-                warn!("Failed to send EOF to backend channel: {:?}", e);
-            }
+        if let Some(channel) = self.channel.lock().await.take()
+            && let Err(e) = channel.eof().await
+        {
+            warn!("Failed to send EOF to backend channel: {:?}", e);
         }
 
         let handle = self.handle.lock().await;
@@ -297,10 +297,7 @@ impl BackendConnection {
             .context("Failed to clear line after completion")?;
 
         let clear_timeout = Duration::from_millis(100);
-        match timeout(clear_timeout, channel.wait()).await {
-            Ok(Some(ChannelMsg::Data { .. })) => {}
-            _ => {}
-        }
+        if let Ok(Some(ChannelMsg::Data { .. })) = timeout(clear_timeout, channel.wait()).await {}
 
         drop(channel_lock);
         Ok(output)

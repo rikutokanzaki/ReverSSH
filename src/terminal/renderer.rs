@@ -6,6 +6,12 @@ use unicode_width::UnicodeWidthChar;
 
 pub struct Renderer;
 
+impl Default for Renderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Renderer {
     pub fn new() -> Self {
         Self
@@ -29,6 +35,7 @@ impl Renderer {
         self.send_data(channel, session, prompt.as_bytes());
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn redraw_line(
         &self,
         channel: ChannelId,
@@ -100,7 +107,7 @@ fn normalize_line_endings(input: &[u8]) -> Vec<u8> {
         out.push(byte);
     }
 
-    return out;
+    out
 }
 
 fn has_bare_lf(input: &[u8]) -> bool {
