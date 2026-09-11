@@ -864,7 +864,8 @@ impl ProxyServer {
 
         match backend.send_tab_completion(&current_buffer).await {
             Ok(output) => {
-                if let Some(completed_line) = TerminalOutputParser::extract_completed_line(&output) {
+                if let Some(completed_line) = TerminalOutputParser::extract_completed_line(&output)
+                {
                     self.reader.replace_buffer(completed_line);
                 } else {
                     warn!("Tab completion: no change detected");
