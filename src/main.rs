@@ -24,7 +24,10 @@ async fn main() -> Result<()> {
     let log_path = "/var/log/reverssh/reverssh.log".to_string();
     let session_manager = Arc::new(SessionManager::new(log_path));
 
-    let backend_pool = Arc::new(BackendPool::new(config.backends.clone()));
+    let backend_pool = Arc::new(BackendPool::new(
+        config.backends.clone(),
+        &config.routing.authentication,
+    ));
 
     let detector = build_detector(&config.routing)?;
 

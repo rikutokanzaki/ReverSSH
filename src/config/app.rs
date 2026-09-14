@@ -22,6 +22,12 @@ pub struct AppConfig {
 pub struct RoutingConfig {
     #[serde(default)]
     pub rules: Vec<RoutingRuleConfig>,
+
+    #[serde(default)]
+    pub command: Vec<CommandRuleConfig>,
+
+    #[serde(default)]
+    pub authentication: Vec<AuthenticationRuleConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +40,29 @@ pub struct RoutingRuleConfig {
 
     #[serde(default)]
     pub keywords: Vec<String>,
+
+    #[serde(default)]
+    pub auth: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandRuleConfig {
+    pub name: String,
+    pub backend: String,
+
+    #[serde(default)]
+    pub regex: Vec<String>,
+
+    #[serde(default)]
+    pub keywords: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthenticationRuleConfig {
+    pub name: String,
+    pub backend: String,
 
     #[serde(default)]
     pub auth: Vec<String>,
@@ -74,7 +103,7 @@ pub enum HostKeyType {
     Rsa,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthType {
     #[default]
@@ -82,11 +111,22 @@ pub enum AuthType {
     Password,
 }
 
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BackendType {
+    #[default]
+    Interaction,
+    Credential,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct BackendConfig {
     pub name: String,
     pub hostname: String,
     pub port: u16,
+
+    #[serde(rename = "type", default)]
+    pub backend_type: BackendType,
 
     #[serde(default)]
     pub username: Option<String>,

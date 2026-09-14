@@ -1,4 +1,10 @@
-[[rules]]
+[[authentication]]
+name = "high-risk-credentials"
+backend = "heralding"
+auth = ["root:root", "root:123456"]
+
+
+[[command]]
 name = "dangerous-shell"
 backend = "cowrie2"
 regex = [
@@ -12,9 +18,8 @@ keywords = [
     "nohup",
     ">/dev/tcp/",
 ]
-auth = ["root:*", "admin:admin*"]
 
-[[rules]]
+[[command]]
 name = "download-and-execute"
 backend = "cowrie2"
 regex = [
@@ -22,7 +27,7 @@ regex = [
 ]
 keywords = ["python -c", "python3 -c", "perl -e", "ruby -e", "php -r", "node -e", "powershell -enc", "curl ", "wget "]
 
-[[rules]]
+[[command]]
 name = "privilege-and-credential-access"
 backend = "cowrie2"
 regex = [

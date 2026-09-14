@@ -151,6 +151,13 @@ impl server::Handler for ProxyServer {
         );
         drop(logger_guard);
 
+        if let Err(error) = self.backend_pool.observe_failed_auth(user, password).await {
+            warn!(
+                "Failed to observe rejected authentication for user {}: {:?}",
+                user, error
+            );
+        }
+
         info!("[AUTH REJECTED] user={} password={}", user, password);
         Ok(Auth::Reject {
             proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),

@@ -8,20 +8,36 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     depends_on:
+      - heralding
       - cowrie1
       - cowrie2
     ports:
       - "22:22"
     env_file:
       - ../.env
+    volumes:
+      - ${REVERSSH_DATA_PATH}/reverssh:/var/log/reverssh
     restart: always
 
   ####################################
   ### backends
   ####################################
+  heralding:
+    container_name: heralding
+    image: ghcr.io/telekom-security/heralding:24.04.1
+    user: "0:0"
+    volumes:
+      - ${REVERSSH_DATA_PATH}/heralding:/var/log/heralding
+    tmpfs:
+      - /tmp/heralding:uid=2000,gid=2000
+    restart: always
+    read_only: true
+
   cowrie1:
     container_name: cowrie1
     image: cowrie/cowrie
+    volumes:
+      - ${REVERSSH_DATA_PATH}/cowrie1:/cowrie/cowrie-git/var/log/cowrie
     environment:
       - PYTHONUNBUFFERED=1
       - COWRIE_TTYLOG_ENABLED=yes
@@ -30,6 +46,8 @@ services:
   cowrie2:
     container_name: cowrie2
     image: cowrie/cowrie
+    volumes:
+      - ${REVERSSH_DATA_PATH}/cowrie2:/cowrie/cowrie-git/var/log/cowrie
     environment:
       - PYTHONUNBUFFERED=1
       - COWRIE_TTYLOG_ENABLED=yes
