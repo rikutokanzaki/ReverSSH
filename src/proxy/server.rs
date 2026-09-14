@@ -798,14 +798,7 @@ impl ProxyServer {
             session_data.terminal_state.cwd.clone()
         };
 
-        if let Ok(old_backend) = self.session_manager.get_backend(session_id).await
-            && let Err(e) = old_backend.close().await
-        {
-            warn!(
-                "Failed to close old backend while migrating session {}: {:?}",
-                session_id, e
-            );
-        }
+        let old_backend = self.session_manager.get_backend(session_id).await.ok();
 
         let (new_backend, _initial_cwd) = self
             .backend_pool
@@ -819,6 +812,15 @@ impl ProxyServer {
         self.session_manager
             .set_backend(session_id, new_backend.clone())
             .await?;
+
+        if let Some(old_backend) = old_backend
+            && let Err(e) = old_backend.close().await
+        {
+            warn!(
+                "Failed to close old backend while migrating session {}: {:?}",
+                session_id, e
+            );
+        }
 
         if let Some(cwd) = current_cwd {
             let cd_cmd = format!("cd {}", cwd.display());
