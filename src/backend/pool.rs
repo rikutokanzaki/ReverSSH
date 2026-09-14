@@ -117,6 +117,26 @@ impl BackendPool {
         connection.close().await
     }
 
+    pub async fn interaction_backend_for_auth(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Option<String> {
+        let backends = self.backends.read().await;
+
+        self.authentication_routes
+            .iter()
+            .find(|route| {
+                route
+                    .credentials
+                    .iter()
+                    .any(|credential| matches_credential(credential, username, password))
+            })
+            .and_then(|route| backends.get(&route.backend))
+            .filter(|backend| backend.backend_type == BackendType::Interaction)
+            .map(|backend| backend.name.clone())
+    }
+
     pub async fn get_backend_config(&self, name: &str) -> Option<BackendConfig> {
         let backends = self.backends.read().await;
         backends.get(name).cloned()

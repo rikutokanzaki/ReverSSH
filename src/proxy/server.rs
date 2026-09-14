@@ -21,6 +21,7 @@ use crate::session::manager::{SessionId, SessionManager};
 use crate::terminal::parser::TerminalOutputParser;
 use crate::terminal::reader::{InputEvent, LineReader};
 use crate::terminal::renderer::Renderer;
+use crate::terminal::state::CmdInfo;
 
 pub struct ProxyServer {
     config: Arc<AppConfig>,
@@ -37,6 +38,7 @@ pub struct ProxyServer {
     session_created: bool,
     username: Option<String>,
     password: Option<String>,
+    authenticated_backend: Option<String>,
     shell_active: bool,
     exec_mode: bool,
     reader: LineReader,
@@ -76,6 +78,7 @@ impl ProxyServer {
             session_created: false,
             username: None,
             password: None,
+            authenticated_backend: None,
             shell_active: false,
             exec_mode: false,
             reader: LineReader::new(config.server.history_size),
@@ -132,6 +135,10 @@ impl server::Handler for ProxyServer {
         if is_allowed {
             self.username = Some(user.to_string());
             self.password = Some(password.to_string());
+            self.authenticated_backend = self
+                .backend_pool
+                .interaction_backend_for_auth(user, password)
+                .await;
 
             let logger = self.session_manager.get_logger();
             let logger_guard = logger.lock().await;
@@ -533,9 +540,14 @@ impl ProxyServer {
             return Ok(backend);
         }
 
+        let preferred_backend = self.authenticated_backend.take();
         let (backend, initial_cwd) = self
             .backend_pool
-            .create_connection(None, self.username.as_deref(), self.password.as_deref())
+            .create_connection(
+                preferred_backend.as_deref(),
+                self.username.as_deref(),
+                self.password.as_deref(),
+            )
             .await?;
 
         self.session_manager
@@ -595,6 +607,37 @@ impl ProxyServer {
         command: &str,
         mode: CommandExecutionMode,
     ) {
+        let command_info = CmdInfo::new_with_generated_id(self.get_username(), command);
+        if let Some(target_backend) = self.detector.detect(
+            &command_info,
+            self.get_username(),
+            self.password.as_deref().unwrap_or(""),
+        ) {
+            let resolved_backend = self
+                .config
+                .migration
+                .get(target_backend.as_str())
+                .cloned()
+                .unwrap_or(target_backend);
+            let should_migrate = self
+                .session_manager
+                .get_backend(session_id)
+                .await
+                .map(|backend| backend.name != resolved_backend)
+                .unwrap_or(true);
+
+            if should_migrate
+                && let Err(error) = self
+                    .perform_migration(session_id, &resolved_backend, channel, session)
+                    .await
+            {
+                error!(
+                    "Failed to route command '{}' to backend '{}': {:?}",
+                    command, resolved_backend, error
+                );
+            }
+        }
+
         let backend = match self.ensure_backend_connected(session_id).await {
             Ok(backend) => backend,
             Err(e) => {
@@ -723,61 +766,9 @@ impl ProxyServer {
         &mut self,
         channel: ChannelId,
         session: &mut Session,
-        session_id: &str,
+        _session_id: &str,
         mode: CommandExecutionMode,
     ) {
-        if let Some(session_lock) = self.session_manager.get_session(session_id).await {
-            let session_data = session_lock.read().await;
-
-            if let Some(ref cmd_info) = session_data.terminal_state.last_cmd
-                && let Some(target_backend) =
-                    self.detector
-                        .detect(cmd_info, &session_data.username, &session_data.password)
-            {
-                drop(session_data);
-                let resolved_backend = self
-                    .config
-                    .migration
-                    .get(target_backend.as_str())
-                    .map(|s| s.as_str())
-                    .unwrap_or(target_backend.as_str());
-
-                match mode {
-                    CommandExecutionMode::Shell => {
-                        if resolved_backend != target_backend.as_str() {
-                            info!(
-                                "Detected attack pattern, migrating to: {} (mapped from {})",
-                                resolved_backend, target_backend
-                            );
-                        } else {
-                            info!(
-                                "Detected attack pattern, migrating to: {}",
-                                resolved_backend
-                            );
-                        }
-                    }
-                    CommandExecutionMode::Exec => {
-                        info!(
-                            "Detected attack pattern in exec mode, migrating to: {}{}",
-                            resolved_backend,
-                            if resolved_backend != target_backend.as_str() {
-                                " (mapped)"
-                            } else {
-                                ""
-                            }
-                        );
-                    }
-                }
-
-                if let Err(e) = self
-                    .perform_migration(session_id, resolved_backend, channel, session)
-                    .await
-                {
-                    error!("Migration failed: {:?}", e);
-                }
-            }
-        }
-
         match mode {
             CommandExecutionMode::Shell => {
                 self.send_prompt_with_cwd(channel, session).await;
