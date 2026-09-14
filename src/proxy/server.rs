@@ -723,7 +723,9 @@ impl ProxyServer {
             let session_data = session_lock.read().await;
 
             if let Some(ref cmd_info) = session_data.terminal_state.last_cmd
-                && let Some(target_backend) = self.detector.detect(cmd_info)
+                && let Some(target_backend) =
+                    self.detector
+                        .detect(cmd_info, &session_data.username, &session_data.password)
             {
                 drop(session_data);
                 let resolved_backend = self

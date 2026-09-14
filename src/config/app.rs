@@ -11,8 +11,32 @@ pub struct AppConfig {
     #[serde(default)]
     pub backends: Vec<BackendConfig>,
 
+    #[serde(skip)]
+    pub routing: RoutingConfig,
+
     #[serde(default)]
     pub migration: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct RoutingConfig {
+    #[serde(default)]
+    pub rules: Vec<RoutingRuleConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RoutingRuleConfig {
+    pub name: String,
+    pub backend: String,
+
+    #[serde(default)]
+    pub regex: Vec<String>,
+
+    #[serde(default)]
+    pub keywords: Vec<String>,
+
+    #[serde(default)]
+    pub auth: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -2,9 +2,8 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use log::{info, warn};
 use russh::client::{self, AuthResult, Handle, Msg as ClientMsg};
-use russh::keys::{Algorithm, HashAlg, PrivateKeyWithHashAlg};
+use russh::keys::{HashAlg, PrivateKeyWithHashAlg};
 use russh::{Channel, ChannelMsg};
-use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
@@ -39,16 +38,7 @@ pub struct BackendConnection {
 
 impl BackendConnection {
     pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
-        let mut client_config = client::Config::default();
-        client_config.preferred.key = Cow::Owned(vec![
-            Algorithm::Rsa {
-                hash: Some(HashAlg::Sha512),
-            },
-            Algorithm::Rsa {
-                hash: Some(HashAlg::Sha256),
-            },
-            Algorithm::Rsa { hash: None },
-        ]);
+        let client_config = client::Config::default();
 
         let client = Client;
 

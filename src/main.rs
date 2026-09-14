@@ -17,7 +17,7 @@ use reverssh::session::manager::SessionManager;
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let config = load_config("/config/default.toml")?;
+    let config = load_config()?;
     validate_config(&config)?;
 
     let host_key = load_or_generate_host_key(&config.server)?;
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
 
     let backend_pool = Arc::new(BackendPool::new(config.backends.clone()));
 
-    let detector = build_detector();
+    let detector = build_detector(&config.routing)?;
 
     let mut ssh_config = SshConfig {
         inactivity_timeout: Some(Duration::from_secs(3600)),
