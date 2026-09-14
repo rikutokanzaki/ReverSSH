@@ -11,9 +11,18 @@ accept_any = false
 user_db_path = "/config/user.txt"
 
 [[backends]]
+name = "heralding"
+hostname = "heralding"
+port = 22
+type = "credential"
+auth_type = "password"
+default = true
+
+[[backends]]
 name = "cowrie1"
 hostname = "cowrie1"
 port = 2222
+type = "interaction"
 auth_type = "password"
 default = true
 
@@ -21,5 +30,6 @@ default = true
 name = "cowrie2"
 hostname = "cowrie2"
 port = 2222
+type = "interaction"
 auth_type = "password"
 default = false
