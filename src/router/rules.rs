@@ -35,26 +35,5 @@ pub fn build_detector(config: &RoutingConfig) -> Result<Arc<dyn Detector>> {
         detectors.extend(rule_detectors);
     }
 
-    for rule in &config.authentication {
-        let rule = RoutingRuleConfig {
-            name: rule.name.clone(),
-            backend: rule.backend.clone(),
-            regex: Vec::new(),
-            keywords: Vec::new(),
-            auth: rule.auth.clone(),
-        };
-
-        if rule.auth.is_empty() {
-            bail!(
-                "authentication rule '{}' has no authentication conditions",
-                rule.name
-            );
-        }
-
-        let rule_detectors = build_rule_detectors(&rule)
-            .with_context(|| format!("invalid authentication rule '{}'", rule.name))?;
-        detectors.extend(rule_detectors);
-    }
-
     Ok(Arc::new(CompositeDetector { detectors }))
 }
