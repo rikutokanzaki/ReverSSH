@@ -175,11 +175,9 @@ impl server::Handler for ProxyServer {
     async fn channel_open_session(
         &mut self,
         _channel: Channel<Msg>,
-        reply: server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        reply.accept().await;
-        Ok(())
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
     }
 
     async fn pty_request(
@@ -783,7 +781,7 @@ impl ProxyServer {
     }
 
     async fn perform_migration(
-        &self,
+        &mut self,
         session_id: &str,
         target_backend: &str,
         _channel: ChannelId,
@@ -800,7 +798,10 @@ impl ProxyServer {
             session_data.terminal_state.cwd.clone()
         };
 
-        let old_backend = self.session_manager.get_backend(session_id).await.ok();
+        let old_backend = match self.session_manager.get_backend(session_id).await {
+            Ok(backend) => backend,
+            Err(_) => self.ensure_backend_connected(session_id).await?,
+        };
 
         let (new_backend, _initial_cwd) = self
             .backend_pool
@@ -815,9 +816,7 @@ impl ProxyServer {
             .set_backend(session_id, new_backend.clone())
             .await?;
 
-        if let Some(old_backend) = old_backend
-            && let Err(e) = old_backend.close().await
-        {
+        if let Err(e) = old_backend.close().await {
             warn!(
                 "Failed to close old backend while migrating session {}: {:?}",
                 session_id, e
