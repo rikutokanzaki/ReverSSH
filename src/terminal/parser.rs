@@ -6,19 +6,17 @@ pub struct TerminalOutputParser;
 lazy_static! {
     static ref ANSI_ESCAPE_RE: Regex =
         Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").expect("Invalid regex pattern");
-    static ref PROMPT_CWD_RE: Regex =
-        Regex::new(r"[\w-]+@[\w-]+:(.*?)[\$#]\s*$").expect("Invalid prompt regex");
 }
 
 impl TerminalOutputParser {
     pub fn is_prompt(data: &[u8]) -> bool {
         if let Ok(text) = std::str::from_utf8(data) {
             let ansi_stripped = ANSI_ESCAPE_RE.replace_all(text, "");
-            let lines: Vec<&str> = ansi_stripped.lines().collect();
-
-            if let Some(last_line) = lines.last() {
-                return last_line.ends_with("$ ") || last_line.ends_with("# ");
-            }
+            return ansi_stripped
+                .lines()
+                .rfind(|line| !line.trim().is_empty())
+                .map(|line| line.trim_end().ends_with(['$', '#']))
+                .unwrap_or(false);
         }
 
         false
@@ -27,16 +25,19 @@ impl TerminalOutputParser {
     pub fn extract_cwd_from_output(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
-        let lines: Vec<&str> = ansi_stripped.lines().collect();
+        let last_line = ansi_stripped
+            .lines()
+            .rfind(|line| !line.trim().is_empty())?
+            .trim_end();
+        let prompt_end = last_line
+            .char_indices()
+            .rfind(|(_, c)| *c == '$' || *c == '#')
+            .map(|(index, _)| index)?;
+        let prompt = &last_line[..prompt_end];
+        let colon = prompt.rfind(':')?;
+        let cwd = prompt[colon + 1..].trim();
 
-        if let Some(last_line) = lines.last()
-            && let Some(captures) = PROMPT_CWD_RE.captures(last_line)
-            && let Some(cwd_match) = captures.get(1)
-        {
-            return Some(cwd_match.as_str().to_string());
-        }
-
-        None
+        (!cwd.is_empty()).then(|| cwd.to_string())
     }
 
     pub fn clean_output(data: &[u8], cmd: &str) -> Vec<u8> {
@@ -53,7 +54,7 @@ impl TerminalOutputParser {
             }
         }
 
-        if matches!(lines.last(), Some(last) if last.ends_with("$ ") || last.ends_with("# ")) {
+        if matches!(lines.last(), Some(last) if last.trim_end().ends_with(['$', '#'])) {
             lines.pop();
         }
 
@@ -84,7 +85,7 @@ impl TerminalOutputParser {
             .collect();
 
         if let Some(last_line) = lines.last() {
-            if let Some(prompt_end) = last_line.find(['$', '#']) {
+            if let Some(prompt_end) = last_line.rfind(['$', '#']) {
                 let command_part = last_line[prompt_end + 1..].trim_start();
                 return Some(command_part.to_string());
             }
@@ -104,5 +105,24 @@ impl TerminalOutputParser {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalOutputParser;
+
+    #[test]
+    fn recognizes_prompts_without_trailing_space() {
+        assert!(TerminalOutputParser::is_prompt(b"alice@host.example:/tmp$"));
+        assert!(TerminalOutputParser::is_prompt(b"root@host.example:/tmp# "));
+    }
+
+    #[test]
+    fn extracts_cwd_from_hosts_with_dots() {
+        assert_eq!(
+            TerminalOutputParser::extract_cwd_from_output(b"cd /tmp\r\nalice@host.example:/tmp$"),
+            Some("/tmp".to_string())
+        );
     }
 }
