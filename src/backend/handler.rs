@@ -266,17 +266,18 @@ impl BackendConnection {
             .context("Failed to send buffer and tab")?;
 
         let mut output = Vec::new();
-        let read_timeout = Duration::from_secs(300);
 
         loop {
-            match timeout(read_timeout, channel.wait()).await {
+            let wait_timeout = if output.is_empty() {
+                Duration::from_secs(1)
+            } else {
+                Duration::from_millis(150)
+            };
+
+            match timeout(wait_timeout, channel.wait()).await {
                 Ok(Some(msg)) => match msg {
                     ChannelMsg::Data { ref data } => {
                         output.extend_from_slice(data);
-
-                        if TerminalOutputParser::is_prompt(&output) {
-                            break;
-                        }
                     }
                     ChannelMsg::Eof => {
                         warn!("Channel EOF during tab completion");
