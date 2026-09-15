@@ -1,5 +1,4 @@
 use russh::client;
-use russh::keys::PublicKeyOrCertificate;
 
 pub struct Client;
 
@@ -8,7 +7,7 @@ impl client::Handler for Client {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKeyOrCertificate,
+        _server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, Self::Error> {
         Ok(true)
     }
