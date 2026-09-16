@@ -93,7 +93,32 @@ impl TestSession {
             .data(input)
             .await
             .context("failed to send SSH input")?;
-        self.read_until_prompt(None).await
+
+        let raw = String::from_utf8_lossy(input);
+        let command = raw.rsplit(']').next().unwrap_or(&raw).trim_matches('\r');
+        let mut output = Vec::new();
+        let mut command_seen = false;
+
+        loop {
+            let message = timeout(Duration::from_secs(10), self.channel.wait())
+                .await
+                .context("timed out waiting for SSH output")?
+                .context("SSH channel closed before prompt")?;
+
+            match message {
+                ChannelMsg::Data { ref data } => {
+                    output.extend_from_slice(data);
+                    if !command_seen && String::from_utf8_lossy(&output).contains(command) {
+                        command_seen = true;
+                    }
+                    if command_seen && prompt_cwd(&output).is_some() {
+                        return Ok(output);
+                    }
+                }
+                ChannelMsg::Eof => bail!("SSH channel reached EOF before prompt"),
+                _ => {}
+            }
+        }
     }
 
     async fn read_until_prompt(&mut self, expected_cwd: Option<&str>) -> Result<Vec<u8>> {
