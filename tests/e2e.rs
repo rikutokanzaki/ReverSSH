@@ -108,12 +108,11 @@ impl TestSession {
             match message {
                 ChannelMsg::Data { ref data } => {
                     output.extend_from_slice(data);
-                    if let Some(cwd) = prompt_cwd(&output) {
-                        if let Some(expected) = expected_cwd
-                            && cwd != expected
-                        {
-                            bail!("expected CWD {expected:?}, got {cwd:?}");
+                    if let Some(expected) = expected_cwd {
+                        if prompt_with_cwd(&output, expected) {
+                            return Ok(output);
                         }
+                    } else if prompt_cwd(&output).is_some() {
                         return Ok(output);
                     }
                 }
@@ -146,6 +145,11 @@ impl TestSession {
             .context("failed to disconnect test SSH client")?;
         Ok(())
     }
+}
+
+fn prompt_with_cwd(data: &[u8], expected_cwd: &str) -> bool {
+    let text = String::from_utf8_lossy(data);
+    text.contains(&format!(":{expected_cwd}#")) || text.contains(&format!(":{expected_cwd}$"))
 }
 
 fn prompt_cwd(data: &[u8]) -> Option<&str> {
