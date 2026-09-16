@@ -109,7 +109,7 @@ impl TestSession {
                 ChannelMsg::Data { ref data } => {
                     output.extend_from_slice(data);
                     if let Some(expected) = expected_cwd {
-                        if prompt_with_cwd(&output, expected) {
+                        if prompt_cwd(&output) == Some(expected) {
                             return Ok(output);
                         }
                     } else if prompt_cwd(&output).is_some() {
@@ -147,17 +147,15 @@ impl TestSession {
     }
 }
 
-fn prompt_with_cwd(data: &[u8], expected_cwd: &str) -> bool {
-    let text = String::from_utf8_lossy(data);
-    text.contains(&format!(":{expected_cwd}#")) || text.contains(&format!(":{expected_cwd}$"))
-}
-
 fn prompt_cwd(data: &[u8]) -> Option<&str> {
     let text = std::str::from_utf8(data).ok()?;
     let line = text.rsplit('\n').next()?.trim_matches(['\r', ' ']);
     let prompt_start = line.rfind("root@")?;
     let prompt = line[prompt_start..].trim_end();
     let prompt_end = prompt.find(['#', '$'])?;
+    if !prompt[prompt_end + 1..].trim().is_empty() {
+        return None;
+    }
     let prompt = &prompt[..prompt_end];
     let cwd = prompt.split_once(':')?.1;
     (!cwd.is_empty()).then_some(cwd)
