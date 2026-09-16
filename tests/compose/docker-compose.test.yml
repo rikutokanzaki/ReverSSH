@@ -18,6 +18,7 @@ services:
     volumes:
       - ../fixtures/proxy/default.toml:/config/default.toml:ro
       - ../fixtures/proxy/routing.toml:/config/routing.toml:ro
+      - ../fixtures/proxy/user.txt:/config/user.txt:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
       interval: 2s
