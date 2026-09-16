@@ -25,10 +25,11 @@ services:
       retries: 30
 
   backend:
-    container_name: reverssh-test-backend
+    container_name: backend
     hostname: backend
     build:
       context: ../fixtures/backends/openssh
+      dockerfile: Dockerfile
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
       interval: 2s
@@ -68,6 +69,8 @@ services:
   beelzebub:
     container_name: beelzebub
     image: m4r10/beelzebub
+    tmpfs:
+      - /logs
     volumes:
       - ../fixtures/backends/beelzebub/configurations:/configurations
     restart: always
