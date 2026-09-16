@@ -1,0 +1,18 @@
+apiVersion: "v1"
+protocol: "ssh"
+address: ":2222"
+description: "SSH interactive Ollama"
+commands:
+  - regex: "^(.+)$"
+    plugin: "LLMHoneypot"
+serverVersion: "OpenSSH"
+serverName: "svr04"
+passwordRegex: "^.*$"
+deadlineTimeoutSeconds: 6000
+plugin:
+  llmProvider: "ollama"
+  llmModel: "nemotron-3-nano:4b"
+  host: "http://host.docker.internal:11434/api/chat"
+  rateLimitEnabled: true
+  rateLimitRequests: 10
+  rateLimitWindowSeconds: 60

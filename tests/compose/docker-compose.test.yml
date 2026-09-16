@@ -1,0 +1,81 @@
+services:
+  reverssh:
+    container_name: reverssh-test-proxy
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+      cowrie:
+        condition: service_started
+      beelzebub:
+        condition: service_started
+      heralding:
+        condition: service_started
+    ports:
+      - "2222:22"
+    volumes:
+      - ../fixtures/proxy/default.toml:/config/default.toml:ro
+      - ../fixtures/proxy/routing.toml:/config/routing.toml:ro
+      - ../fixtures/proxy/user.txt:/config/user.txt:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  backend:
+    container_name: backend
+    hostname: backend
+    build:
+      context: ../fixtures/backends/openssh
+      dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  heralding:
+    container_name: heralding
+    image: ghcr.io/telekom-security/heralding:24.04.1
+    user: "0:0"
+    tmpfs:
+      - /tmp/heralding:uid=2000,gid=2000
+      - /var/log/heralding
+    restart: always
+    read_only: true
+
+  cowrie:
+    container_name: cowrie
+    image: cowrie/cowrie
+    volumes:
+      - ../fixtures/backends/cowrie/userdb.txt:/cowrie/cowrie-git/etc/userdb.txt
+    environment:
+      - PYTHONUNBUFFERED=1
+      - COWRIE_TTYLOG_ENABLED=yes
+      - COWRIE_SSH_PORT=2222
+    restart: always
+
+  beelzebub:
+    container_name: beelzebub
+    image: m4r10/beelzebub
+    tmpfs:
+      - /logs
+    volumes:
+      - ../fixtures/backends/beelzebub/configurations:/configurations
+    restart: always
+
+  e2e:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+    depends_on:
+      reverssh:
+        condition: service_healthy
+    environment:
+      SSH_HOST: reverssh
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PASSWORD: test-password

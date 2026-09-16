@@ -200,12 +200,16 @@ impl LineReader {
 
             // Down
             InputEvent::ArrowDown => {
-                if let Some(pos) = self.history_pos
-                    && pos < self.history.len() - 1
-                {
-                    self.history_pos = Some(pos + 1);
-                    self.buffer = self.history[pos + 1].clone();
-                    self.cursor = self.buffer.len();
+                if let Some(pos) = self.history_pos {
+                    if pos < self.history.len() - 1 {
+                        self.history_pos = Some(pos + 1);
+                        self.buffer = self.history[pos + 1].clone();
+                        self.cursor = self.buffer.len();
+                    } else {
+                        self.buffer = self.saved_buffer.clone();
+                        self.cursor = self.buffer.len();
+                        self.history_pos = None;
+                    }
                 }
             }
 
@@ -230,5 +234,28 @@ impl LineReader {
             _ => {}
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InputEvent, LineReader};
+
+    #[test]
+    fn down_arrow_restores_buffer_after_latest_history_entry() {
+        let mut reader = LineReader::new(10);
+
+        for event in reader.feed_bytes(b"echo first\r") {
+            reader.apply(event);
+        }
+        for event in reader.feed_bytes(b"echo second\r") {
+            reader.apply(event);
+        }
+
+        reader.apply(InputEvent::Char('n'));
+        reader.apply(InputEvent::ArrowUp);
+        reader.apply(InputEvent::ArrowDown);
+
+        assert_eq!(reader.buffer(), "n");
     }
 }

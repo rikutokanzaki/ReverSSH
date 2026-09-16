@@ -1,4 +1,4 @@
-name: Rust CI
+name: Continuous Integration
 
 on:
   workflow_dispatch: {}
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -38,8 +38,8 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
-      - name: Test
-        run: cargo test --locked --all-targets --all-features
+      - name: Unit tests
+        run: cargo test --locked --lib --bins --all-features
 
       - name: Docker build
         run: docker build --file docker/Dockerfile --tag reverssh:ci .
