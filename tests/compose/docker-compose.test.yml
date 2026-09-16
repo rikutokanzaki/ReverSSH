@@ -42,6 +42,7 @@ services:
     user: "0:0"
     tmpfs:
       - /tmp/heralding:uid=2000,gid=2000
+      - /var/log/heralding
     restart: always
     read_only: true
     healthcheck:
