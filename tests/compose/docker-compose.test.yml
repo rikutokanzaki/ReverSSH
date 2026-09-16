@@ -8,7 +8,7 @@ services:
       backend:
         condition: service_healthy
       cowrie:
-        condition: service_healthy
+        condition: service_started
       beelzebub:
         condition: service_started
       heralding:
@@ -56,11 +56,6 @@ services:
       - COWRIE_TTYLOG_ENABLED=yes
       - COWRIE_SSH_PORT=2222
     restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/2222'"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
 
   beelzebub:
     container_name: beelzebub
