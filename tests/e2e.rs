@@ -95,7 +95,11 @@ impl TestSession {
             .context("failed to send SSH input")?;
 
         let raw = String::from_utf8_lossy(input);
-        let command = raw.rsplit(']').next().unwrap_or(&raw).trim_matches('\r');
+        let command = raw
+            .rsplit_once("\x1b[")
+            .and_then(|(_, sequence)| sequence.get(1..))
+            .unwrap_or(&raw)
+            .trim_matches('\r');
         let mut output = Vec::new();
         let mut command_seen = false;
 
