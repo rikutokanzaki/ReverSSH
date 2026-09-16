@@ -1,0 +1,4 @@
+[[command]]
+name = "backend-switch"
+backend = "backend2"
+regex = ["^hostname$"]

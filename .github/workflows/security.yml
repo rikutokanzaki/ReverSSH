@@ -1,4 +1,4 @@
-name: Rust Security
+name: Security audit
 
 on:
   push:
@@ -13,12 +13,12 @@ permissions:
   checks: write
 
 concurrency:
-  group: rust-security-${{ github.workflow }}-${{ github.ref }}
+  group: security-audit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  audit:
-    name: Security audit
+  cargo-audit:
+    name: Cargo audit
     runs-on: ubuntu-latest
 
     steps:

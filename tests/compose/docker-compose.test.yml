@@ -1,0 +1,50 @@
+services:
+  reverssh:
+    container_name: reverssh-test-proxy
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      backend1:
+        condition: service_healthy
+      backend2:
+        condition: service_healthy
+    ports:
+      - "2222:22"
+    volumes:
+      - ../fixtures/proxy/default.toml:/config/default.toml:ro
+      - ../fixtures/proxy/routing.toml:/config/routing.toml:ro
+
+  backend1:
+    container_name: reverssh-test-backend1
+    hostname: backend1
+    build:
+      context: ../fixtures/backends/openssh
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  backend2:
+    container_name: reverssh-test-backend2
+    hostname: backend2
+    build:
+      context: ../fixtures/backends/openssh
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  e2e:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+    depends_on:
+      - reverssh
+    environment:
+      SSH_HOST: reverssh
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PASSWORD: test-password
