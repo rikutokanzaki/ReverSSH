@@ -153,7 +153,8 @@ fn prompt_cwd(data: &[u8]) -> Option<&str> {
     let line = text.rsplit('\n').next()?.trim_matches(['\r', ' ']);
     let prompt_start = line.rfind("root@")?;
     let prompt = line[prompt_start..].trim_end();
-    let prompt = prompt.trim_end_matches(['#', '$']).trim_end();
+    let prompt_end = prompt.find(['#', '$'])?;
+    let prompt = &prompt[..prompt_end];
     let cwd = prompt.split_once(':')?.1;
     (!cwd.is_empty()).then_some(cwd)
 }
