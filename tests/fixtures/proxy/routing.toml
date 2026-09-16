@@ -1,4 +1,9 @@
 [[command]]
-name = "backend-switch"
-backend = "backend2"
-regex = ["^hostname$"]
+name = "cowrie-switch"
+backend = "cowrie"
+regex = ["^cowrie$"]
+
+[[command]]
+name = "beelzebub-switch"
+backend = "beelzebub"
+regex = ["^beelzebub$"]

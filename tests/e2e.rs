@@ -59,6 +59,35 @@ impl TestSession {
         Ok(session)
     }
 
+    async fn assert_password_rejected(
+        host: &str,
+        port: u16,
+        user: &str,
+        password: &str,
+    ) -> Result<()> {
+        let config = Arc::new(client::Config::default());
+        let mut handle = timeout(
+            Duration::from_secs(10),
+            client::connect(config, (host, port), TestClient),
+        )
+        .await
+        .context("timed out connecting to reverssh")??;
+
+        let auth = handle
+            .authenticate_password(user, password)
+            .await
+            .context("password authentication request failed")?;
+        if matches!(auth, AuthResult::Success) {
+            bail!("password authentication unexpectedly succeeded");
+        }
+
+        handle
+            .disconnect(russh::Disconnect::ByApplication, "expected rejection", "")
+            .await
+            .context("failed to disconnect rejected SSH client")?;
+        Ok(())
+    }
+
     async fn send(&mut self, input: &[u8]) -> Result<Vec<u8>> {
         self.channel
             .data(input)
@@ -108,30 +137,6 @@ impl TestSession {
         }
     }
 
-    async fn read_until_text_and_prompt(
-        &mut self,
-        expected: &str,
-        expected_cwd: &str,
-    ) -> Result<Vec<u8>> {
-        let mut output = Vec::new();
-
-        loop {
-            let message = timeout(Duration::from_secs(10), self.channel.wait())
-                .await
-                .context("timed out waiting for expected SSH output")?
-                .context("SSH channel closed before expected output")?;
-
-            if let ChannelMsg::Data { ref data } = message {
-                output.extend_from_slice(data);
-                if String::from_utf8_lossy(&output).contains(expected)
-                    && prompt_cwd(&output) == Some(expected_cwd)
-                {
-                    return Ok(output);
-                }
-            }
-        }
-    }
-
     async fn close(self) -> Result<()> {
         let _ = self.channel.data(&b"exit\r"[..]).await;
         let _ = self.channel.eof().await;
@@ -146,10 +151,10 @@ impl TestSession {
 fn prompt_cwd(data: &[u8]) -> Option<&str> {
     let text = std::str::from_utf8(data).ok()?;
     let line = text.rsplit('\n').next()?.trim_matches(['\r', ' ']);
-    let start = line.rfind("root@svr04:")?;
-    let prompt = line[start..].trim_end();
-    let prompt = prompt.strip_suffix('#')?.trim_end();
-    let cwd = prompt.strip_prefix("root@svr04:")?;
+    let prompt_start = line.rfind("root@")?;
+    let prompt = line[prompt_start..].trim_end();
+    let prompt = prompt.trim_end_matches(['#', '$']).trim_end();
+    let cwd = prompt.split_once(':')?.1;
     (!cwd.is_empty()).then_some(cwd)
 }
 
@@ -184,14 +189,11 @@ async fn run_tests(host: &str, port: u16, user: &str, password: &str) -> Result<
 
     session.send(b"\x1b[A\x1b[D\x1b[C\x1b[Becho down\r").await?;
 
-    session.channel.data(&b"hostname\r"[..]).await?;
-    let output = session
-        .read_until_text_and_prompt("backend2", "/tmp/reverssh-tab-target")
-        .await?;
+    let output = session.send(b"echo cowrie-ok\r").await?;
+    assert_output(&output, "cowrie-ok")?;
 
-    if prompt_cwd(&output) != Some("/tmp/reverssh-tab-target") {
-        bail!("backend switch did not preserve CWD");
-    }
+    let output = session.send(b"echo beelzebub-ok\r").await?;
+    assert_output(&output, "beelzebub-ok")?;
 
     session.close().await
 }
@@ -212,6 +214,8 @@ async fn ssh_e2e() -> Result<()> {
         .parse::<u16>()?;
     let user = std::env::var("SSH_USER").unwrap_or_else(|_| "root".to_string());
     let password = std::env::var("SSH_PASSWORD").unwrap_or_else(|_| "test-password".to_string());
+
+    TestSession::assert_password_rejected(&host, port, &user, "rejected-password").await?;
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {

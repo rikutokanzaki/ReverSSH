@@ -11,8 +11,8 @@ accept_any = false
 user_db_path = "/config/user.txt"
 
 [[backends]]
-name = "backend1"
-hostname = "backend1"
+name = "backend"
+hostname = "backend"
 port = 22
 type = "interaction"
 auth_type = "password"
@@ -21,11 +21,28 @@ username = "root"
 password = "test-password"
 
 [[backends]]
-name = "backend2"
-hostname = "backend2"
-port = 22
+name = "cowrie"
+hostname = "cowrie"
+port = 2222
+type = "interaction"
+auth_type = "password"
+username = "root"
+password = "test-password"
+
+[[backends]]
+name = "beelzebub"
+hostname = "beelzebub"
+port = 2222
 type = "interaction"
 auth_type = "password"
 default = false
 username = "root"
 password = "test-password"
+
+[[backends]]
+name = "heralding"
+hostname = "heralding"
+port = 22
+type = "credential"
+auth_type = "password"
+default = true
