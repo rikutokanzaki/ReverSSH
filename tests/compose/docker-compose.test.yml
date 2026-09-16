@@ -14,11 +14,6 @@ services:
     volumes:
       - ../fixtures/proxy/default.toml:/config/default.toml:ro
       - ../fixtures/proxy/routing.toml:/config/routing.toml:ro
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
 
   backend1:
     container_name: reverssh-test-backend1
@@ -47,8 +42,9 @@ services:
       context: ../..
       dockerfile: tests/e2e/Dockerfile
     depends_on:
-      reverssh:
-        condition: service_healthy
+      - reverssh
+      - backend1
+      - backend2
     environment:
       SSH_HOST: reverssh
       SSH_PORT: "22"
