@@ -88,6 +88,60 @@ impl TestSession {
         Ok(())
     }
 
+    async fn exec(
+        host: &str,
+        port: u16,
+        user: &str,
+        password: &str,
+        command: &str,
+    ) -> Result<Vec<u8>> {
+        let config = Arc::new(client::Config::default());
+        let mut handle = timeout(
+            Duration::from_secs(10),
+            client::connect(config, (host, port), TestClient),
+        )
+        .await
+        .context("timed out connecting to reverssh for exec")??;
+
+        let auth = handle
+            .authenticate_password(user, password)
+            .await
+            .context("password authentication failed for exec")?;
+        if !matches!(auth, AuthResult::Success) {
+            bail!("password authentication was rejected for exec");
+        }
+
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .context("failed to open exec channel")?;
+        channel
+            .exec(true, command.as_bytes())
+            .await
+            .context("failed to send exec request")?;
+
+        let mut output = Vec::new();
+        loop {
+            let message = timeout(Duration::from_secs(10), channel.wait())
+                .await
+                .context("timed out waiting for exec output")?
+                .context("exec channel closed unexpectedly")?;
+
+            match message {
+                ChannelMsg::Data { ref data } => output.extend_from_slice(data),
+                ChannelMsg::Eof => break,
+                _ => {}
+            }
+        }
+
+        handle
+            .disconnect(russh::Disconnect::ByApplication, "exec test complete", "")
+            .await
+            .context("failed to disconnect exec test client")?;
+
+        Ok(output)
+    }
+
     async fn send(&mut self, input: &[u8]) -> Result<Vec<u8>> {
         self.channel
             .data(input)
@@ -191,6 +245,19 @@ fn prompt_cwd(data: &[u8]) -> Option<&str> {
 }
 
 async fn run_tests(host: &str, port: u16, user: &str, password: &str) -> Result<()> {
+    let output = TestSession::exec(host, port, user, password, "ls -a").await?;
+    assert_output(&output, "e2e-marker")?;
+
+    let output = TestSession::exec(
+        host,
+        port,
+        user,
+        password,
+        "python -c 'print(\"exec-python-ok\")'",
+    )
+    .await?;
+    assert_output(&output, "exec-python-ok")?;
+
     let mut session = TestSession::connect(host, port, user, password).await?;
 
     session
