@@ -85,27 +85,7 @@ impl BackendPool {
     pub async fn observe_failed_auth(&self, username: &str, password: &str) -> Result<()> {
         let config = {
             let backends = self.backends.read().await;
-            let routed_backend = self.authentication_routes.iter().find(|route| {
-                route
-                    .credentials
-                    .iter()
-                    .any(|credential| matches_credential(credential, username, password))
-            });
-
-            routed_backend
-                .and_then(|route| backends.get(&route.backend))
-                .or_else(|| {
-                    backends.values().find(|backend| {
-                        backend.backend_type == BackendType::Credential
-                            && backend.username.as_deref() == Some(username)
-                            && backend.password.as_deref() == Some(password)
-                    })
-                })
-                .or_else(|| {
-                    self.default_credential_backend
-                        .as_deref()
-                        .and_then(|name| backends.get(name))
-                })
+            self.credential_backend_config_from(&backends, username, password)
                 .cloned()
         };
 
@@ -115,6 +95,45 @@ impl BackendPool {
 
         let connection = BackendConnection::connect(config, username, password).await?;
         connection.close().await
+    }
+
+    pub async fn credential_backend_for_auth(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Option<BackendConfig> {
+        let backends = self.backends.read().await;
+        self.credential_backend_config_from(&backends, username, password)
+            .cloned()
+    }
+
+    fn credential_backend_config_from<'a>(
+        &'a self,
+        backends: &'a HashMap<String, BackendConfig>,
+        username: &str,
+        password: &str,
+    ) -> Option<&'a BackendConfig> {
+        let routed_backend = self.authentication_routes.iter().find(|route| {
+            route
+                .credentials
+                .iter()
+                .any(|credential| matches_credential(credential, username, password))
+        });
+
+        routed_backend
+            .and_then(|route| backends.get(&route.backend))
+            .or_else(|| {
+                backends.values().find(|backend| {
+                    backend.backend_type == BackendType::Credential
+                        && backend.username.as_deref() == Some(username)
+                        && backend.password.as_deref() == Some(password)
+                })
+            })
+            .or_else(|| {
+                self.default_credential_backend
+                    .as_deref()
+                    .and_then(|name| backends.get(name))
+            })
     }
 
     pub async fn interaction_backend_for_auth(

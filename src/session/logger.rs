@@ -24,6 +24,9 @@ pub struct CommandLogEvent<'a> {
     pub backend_response_displayed: Option<&'a str>,
     pub backend_response_error: Option<&'a str>,
     pub success: bool,
+    pub dest_backend: Option<&'a str>,
+    pub dest_ip: Option<&'a str>,
+    pub dest_port: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -35,8 +38,9 @@ struct AuthLogEntry<'a> {
     session_id: &'a str,
     src_ip: &'a str,
     src_port: u16,
-    dest_ip: &'a str,
-    dest_port: u16,
+    dest_backend: Option<&'a str>,
+    dest_ip: Option<&'a str>,
+    dest_port: Option<u16>,
     username: &'a str,
     password: &'a str,
     protocol: &'a str,
@@ -66,6 +70,9 @@ struct CommandLogEntry<'a> {
     backend_response_error: Option<&'a str>,
     success: bool,
     protocol: &'a str,
+    dest_backend: Option<&'a str>,
+    dest_ip: Option<&'a str>,
+    dest_port: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -105,8 +112,9 @@ impl SessionLogger {
         session_id: &str,
         src_ip: &str,
         src_port: u16,
-        dest_ip: &str,
-        dest_port: u16,
+        dest_backend: Option<&str>,
+        dest_ip: Option<&str>,
+        dest_port: Option<u16>,
         username: &str,
         password: &str,
         success: bool,
@@ -120,6 +128,7 @@ impl SessionLogger {
             src_port,
             dest_ip,
             dest_port,
+            dest_backend,
             username,
             password,
             protocol: "ssh",
@@ -159,6 +168,9 @@ impl SessionLogger {
             backend_response_error: event.backend_response_error,
             success: event.success,
             protocol: "ssh",
+            dest_backend: event.dest_backend,
+            dest_ip: event.dest_ip,
+            dest_port: event.dest_port,
         };
 
         if let Err(e) = self.write_log(&log_entry) {

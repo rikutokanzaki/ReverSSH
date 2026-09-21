@@ -130,20 +130,33 @@ impl server::Handler for ProxyServer {
 
         let session_id = self.session_id.as_deref().unwrap_or("unknown");
         let (src_ip, src_port) = self.client_address();
-        let (dest_ip, dest_port) = self.server_address();
 
         if is_allowed {
             self.username = Some(user.to_string());
             self.password = Some(password.to_string());
-            self.authenticated_backend = self
+            let authenticated_backend = self
                 .backend_pool
                 .interaction_backend_for_auth(user, password)
                 .await;
+            self.authenticated_backend = authenticated_backend.clone();
+
+            let destination = match authenticated_backend.as_deref() {
+                Some(name) => self.backend_pool.get_backend_config(name).await,
+                None => None,
+            };
 
             let logger = self.session_manager.get_logger();
             let logger_guard = logger.lock().await;
             logger_guard.log_auth_event(
-                session_id, &src_ip, src_port, &dest_ip, dest_port, user, password, true,
+                session_id,
+                &src_ip,
+                src_port,
+                authenticated_backend.as_deref(),
+                destination.as_ref().map(|config| config.hostname.as_str()),
+                destination.as_ref().map(|config| config.port),
+                user,
+                password,
+                true,
             );
             drop(logger_guard);
 
@@ -151,10 +164,22 @@ impl server::Handler for ProxyServer {
             return Ok(Auth::Accept);
         }
 
+        let destination = self
+            .backend_pool
+            .credential_backend_for_auth(user, password)
+            .await;
         let logger = self.session_manager.get_logger();
         let logger_guard = logger.lock().await;
         logger_guard.log_auth_event(
-            session_id, &src_ip, src_port, &dest_ip, dest_port, user, password, false,
+            session_id,
+            &src_ip,
+            src_port,
+            destination.as_ref().map(|config| config.name.as_str()),
+            destination.as_ref().map(|config| config.hostname.as_str()),
+            destination.as_ref().map(|config| config.port),
+            user,
+            password,
+            false,
         );
         drop(logger_guard);
 
@@ -986,6 +1011,20 @@ impl ProxyServer {
         let displayed_response =
             backend_response_displayed.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
 
+        let destination = self
+            .session_manager
+            .get_backend(session_id)
+            .await
+            .ok()
+            .map(|backend| {
+                let backend_name = backend.name.clone();
+                (backend_name, backend)
+            });
+        let destination_config = match destination.as_ref() {
+            Some((backend_name, _)) => self.backend_pool.get_backend_config(backend_name).await,
+            None => None,
+        };
+
         let logger = self.session_manager.get_logger();
         let logger_guard = logger.lock().await;
         let (src_ip, src_port) = self.client_address();
@@ -1012,6 +1051,11 @@ impl ProxyServer {
             backend_response_displayed: displayed_response.as_deref(),
             backend_response_error,
             success: backend_response_error.is_none(),
+            dest_backend: destination.as_ref().map(|(name, _)| name.as_str()),
+            dest_ip: destination_config
+                .as_ref()
+                .map(|config| config.hostname.as_str()),
+            dest_port: destination_config.as_ref().map(|config| config.port),
         });
     }
 
@@ -1058,13 +1102,6 @@ impl ProxyServer {
         self.peer_addr
             .map(|addr| (addr.ip().to_string(), addr.port()))
             .unwrap_or_else(|| ("unknown".to_string(), 0))
-    }
-
-    fn server_address(&self) -> (String, u16) {
-        (
-            self.config.server.listen_addr.ip().to_string(),
-            self.config.server.listen_addr.port(),
-        )
     }
 }
 
