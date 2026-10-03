@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::backend::handler::BackendConnection;
+use crate::client::handler::Client;
 use crate::session::logger::SharedLogger;
 use crate::session::logger::create_logger;
 use crate::terminal::state::{CmdInfo, TerminalState, WindowSize};
@@ -20,7 +20,7 @@ pub struct SessionData {
     pub password: String,
     pub client_channel: ChannelId,
     pub started_at: DateTime<Utc>,
-    pub backend: Option<Arc<BackendConnection>>,
+    pub backend: Option<Arc<Client>>,
     pub terminal_state: TerminalState,
     pub logger: SharedLogger,
 }
@@ -73,11 +73,7 @@ impl SessionManager {
         sessions.get(session_id).cloned()
     }
 
-    pub async fn set_backend(
-        &self,
-        session_id: &str,
-        backend: Arc<BackendConnection>,
-    ) -> Result<()> {
+    pub async fn set_backend(&self, session_id: &str, backend: Arc<Client>) -> Result<()> {
         let session_lock = self
             .get_session(session_id)
             .await
@@ -88,7 +84,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn get_backend(&self, session_id: &str) -> Result<Arc<BackendConnection>> {
+    pub async fn get_backend(&self, session_id: &str) -> Result<Arc<Client>> {
         let session_lock = self
             .get_session(session_id)
             .await

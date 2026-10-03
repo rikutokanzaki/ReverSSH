@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::backend::handler::BackendConnection;
+use crate::client::handler::Client;
 use crate::config::{AuthenticationRuleConfig, BackendConfig, BackendType};
 
 #[derive(Clone)]
@@ -12,14 +12,14 @@ struct AuthenticationRoute {
     credentials: Vec<String>,
 }
 
-pub struct BackendPool {
+pub struct ClientPool {
     backends: Arc<RwLock<HashMap<String, BackendConfig>>>,
     default_interaction_backend: Option<String>,
     default_credential_backend: Option<String>,
     authentication_routes: Vec<AuthenticationRoute>,
 }
 
-impl BackendPool {
+impl ClientPool {
     pub fn new(
         configs: Vec<BackendConfig>,
         authentication_rules: &[AuthenticationRuleConfig],
@@ -61,7 +61,7 @@ impl BackendPool {
         backend_name: Option<&str>,
         username: Option<&str>,
         password: Option<&str>,
-    ) -> Result<(Arc<BackendConnection>, Option<String>)> {
+    ) -> Result<(Arc<Client>, Option<String>)> {
         let backends = self.backends.read().await;
 
         let name = backend_name
@@ -75,8 +75,7 @@ impl BackendPool {
         let effective_username = username.unwrap_or(&config_username);
         let effective_password = password.unwrap_or(&config_password);
 
-        let connection =
-            BackendConnection::connect(config, effective_username, effective_password).await?;
+        let connection = Client::connect(config, effective_username, effective_password).await?;
         let initial_cwd = connection.open_channel().await?;
 
         Ok((Arc::new(connection), initial_cwd))
@@ -93,7 +92,7 @@ impl BackendPool {
             return Ok(());
         };
 
-        let connection = BackendConnection::connect(config, username, password).await?;
+        let connection = Client::connect(config, username, password).await?;
         connection.close().await
     }
 

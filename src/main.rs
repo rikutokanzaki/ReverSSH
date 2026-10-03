@@ -6,10 +6,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 
-use reverssh::backend::pool::BackendPool;
+use reverssh::client::pool::ClientPool;
 use reverssh::config::{load_config, validate_config};
+use reverssh::proxy::factory::ProxyServerFactory;
 use reverssh::proxy::host_key::load_or_generate_host_key;
-use reverssh::proxy::server::ProxyServerFactory;
 use reverssh::router::rules::build_detector;
 use reverssh::session::manager::SessionManager;
 
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
     let log_path = "/var/log/reverssh/reverssh.log".to_string();
     let session_manager = Arc::new(SessionManager::new(log_path));
 
-    let backend_pool = Arc::new(BackendPool::new(
+    let client_pool = Arc::new(ClientPool::new(
         config.backends.clone(),
         &config.routing.authentication,
     ));
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     let mut server_factory = ProxyServerFactory::new(
         config_arc.clone(),
         session_manager.clone(),
-        backend_pool,
+        client_pool,
         detector,
     );
 

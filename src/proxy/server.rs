@@ -10,43 +10,36 @@ use russh::server::{self, Auth, Msg, Session};
 use russh::{Channel, ChannelId, MethodSet};
 use uuid::Uuid;
 
-use crate::backend::handler::{CommandEndReason, CommandExecutionResult};
-use crate::backend::pool::BackendPool;
-use crate::config::AppConfig;
+use crate::client::handler::{Client, CommandEndReason, CommandExecutionResult};
 use crate::proxy::authenticator::{Authentication, FileBasedAuthenticator};
-use crate::proxy::motd::return_motd;
-use crate::router::migration::Detector;
-use crate::session::logger::CommandLogEvent;
-use crate::session::manager::{SessionId, SessionManager};
+use crate::proxy::context::ProxyContext;
+use crate::session::manager::SessionId;
 use crate::terminal::parser::TerminalOutputParser;
 use crate::terminal::reader::{InputEvent, LineReader};
 use crate::terminal::renderer::Renderer;
 use crate::terminal::state::CmdInfo;
 
 pub struct ProxyServer {
-    config: Arc<AppConfig>,
-    session_manager: Arc<SessionManager>,
-    backend_pool: Arc<BackendPool>,
-    detector: Arc<dyn Detector>,
-    peer_addr: Option<SocketAddr>,
+    pub(super) context: Arc<ProxyContext>,
+    pub(super) peer_addr: Option<SocketAddr>,
 
-    accept_any: bool,
-    authenticator: Option<Arc<FileBasedAuthenticator>>,
-    motd: String,
+    pub(super) accept_any: bool,
+    pub(super) authenticator: Option<Arc<FileBasedAuthenticator>>,
+    pub(super) motd: String,
 
-    session_id: Option<SessionId>,
-    session_created: bool,
-    username: Option<String>,
-    password: Option<String>,
-    authenticated_backend: Option<String>,
-    shell_active: bool,
-    exec_mode: bool,
-    reader: LineReader,
-    renderer: Renderer,
+    pub(super) session_id: Option<SessionId>,
+    pub(super) session_created: bool,
+    pub(super) username: Option<String>,
+    pub(super) password: Option<String>,
+    pub(super) authenticated_backend: Option<String>,
+    pub(super) shell_active: bool,
+    pub(super) exec_mode: bool,
+    pub(super) reader: LineReader,
+    pub(super) renderer: Renderer,
 }
 
 #[derive(Copy, Clone)]
-enum CommandExecutionMode {
+pub(super) enum CommandExecutionMode {
     Shell,
     Exec,
 }
@@ -54,10 +47,7 @@ enum CommandExecutionMode {
 impl ProxyServer {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        config: Arc<AppConfig>,
-        session_manager: Arc<SessionManager>,
-        backend_pool: Arc<BackendPool>,
-        detector: Arc<dyn Detector>,
+        context: Arc<ProxyContext>,
         peer_addr: Option<SocketAddr>,
         accept_any: bool,
         authenticator: Option<Arc<FileBasedAuthenticator>>,
@@ -66,10 +56,7 @@ impl ProxyServer {
         let renderer = Renderer::new();
 
         Self {
-            config: config.clone(),
-            session_manager,
-            backend_pool,
-            detector,
+            context: context.clone(),
             peer_addr,
             accept_any,
             authenticator,
@@ -81,7 +68,7 @@ impl ProxyServer {
             authenticated_backend: None,
             shell_active: false,
             exec_mode: false,
-            reader: LineReader::new(config.server.history_size),
+            reader: LineReader::new(context.config.server.history_size),
             renderer,
         }
     }
@@ -135,17 +122,18 @@ impl server::Handler for ProxyServer {
             self.username = Some(user.to_string());
             self.password = Some(password.to_string());
             let authenticated_backend = self
-                .backend_pool
+                .context
+                .client_pool
                 .interaction_backend_for_auth(user, password)
                 .await;
             self.authenticated_backend = authenticated_backend.clone();
 
             let destination = match authenticated_backend.as_deref() {
-                Some(name) => self.backend_pool.get_backend_config(name).await,
+                Some(name) => self.context.client_pool.get_backend_config(name).await,
                 None => None,
             };
 
-            let logger = self.session_manager.get_logger();
+            let logger = self.context.session_manager.get_logger();
             let logger_guard = logger.lock().await;
             logger_guard.log_auth_event(
                 session_id,
@@ -165,10 +153,11 @@ impl server::Handler for ProxyServer {
         }
 
         let destination = self
-            .backend_pool
+            .context
+            .client_pool
             .credential_backend_for_auth(user, password)
             .await;
-        let logger = self.session_manager.get_logger();
+        let logger = self.context.session_manager.get_logger();
         let logger_guard = logger.lock().await;
         logger_guard.log_auth_event(
             session_id,
@@ -183,7 +172,12 @@ impl server::Handler for ProxyServer {
         );
         drop(logger_guard);
 
-        if let Err(error) = self.backend_pool.observe_failed_auth(user, password).await {
+        if let Err(error) = self
+            .context
+            .client_pool
+            .observe_failed_auth(user, password)
+            .await
+        {
             warn!(
                 "Failed to observe rejected authentication for user {}: {:?}",
                 user, error
@@ -229,35 +223,13 @@ impl server::Handler for ProxyServer {
     ) -> Result<(), Self::Error> {
         self.shell_active = true;
 
-        if let (Some(username), Some(password)) = (self.username.as_ref(), self.password.as_ref()) {
-            let session_id = self
-                .session_id
-                .clone()
-                .expect("session id must exist for accepted connections");
-
-            match self
-                .session_manager
-                .create_session(
-                    session_id.clone(),
-                    username.clone(),
-                    password.clone(),
-                    channel,
-                )
+        if self.username.is_some()
+            && self.password.is_some()
+            && let Err(e) = self
+                .create_session_for_channel(channel, CommandExecutionMode::Shell, None)
                 .await
-            {
-                Ok(session_id) => {
-                    self.session_id = Some(session_id.clone());
-                    self.session_created = true;
-                    info!("Session {} created for user {}", session_id, username);
-                    info!(
-                        "[SESSION START - SHELL] session_id={} user={}",
-                        session_id, username
-                    );
-                }
-                Err(e) => {
-                    error!("Failed to create session for user {}: {:?}", username, e);
-                }
-            }
+        {
+            error!("Failed to create shell session: {:?}", e);
         }
 
         self.confirm_channel(channel, session, "shell_request");
@@ -283,50 +255,29 @@ impl server::Handler for ProxyServer {
         let command = String::from_utf8_lossy(data).to_string();
         info!("Exec request: {}", command);
 
-        let (username, password) = match (&self.username, &self.password) {
-            (Some(u), Some(p)) => (u.clone(), p.clone()),
-            _ => {
-                error!("No credentials available for exec request");
-                let error_msg = "Authentication required\r\n";
-                self.renderer
-                    .send_data(channel, session, error_msg.as_bytes());
+        if self.username.is_none() || self.password.is_none() {
+            error!("No credentials available for exec request");
+            let error_msg = "Authentication required\r\n";
+            self.renderer
+                .send_data(channel, session, error_msg.as_bytes());
 
-                self.terminate_channel(channel, session, 1, "exec_auth_required")
-                    .await;
+            self.terminate_channel(channel, session, 1, "exec_auth_required")
+                .await;
 
-                return Ok(());
-            }
-        };
+            return Ok(());
+        }
 
         let session_id = match self
-            .session_manager
-            .create_session(
-                self.session_id
-                    .clone()
-                    .expect("session id must exist for accepted connections"),
-                username.clone(),
-                password.clone(),
-                channel,
-            )
+            .create_session_for_channel(channel, CommandExecutionMode::Exec, Some(&command))
             .await
         {
-            Ok(session_id) => {
-                info!("Exec session {} created for user {}", session_id, username);
-                self.session_created = true;
-                info!(
-                    "[SESSION START - EXEC] session_id={} user={} command={}",
-                    session_id, username, command
-                );
-                session_id
-            }
-            Err(e) => {
-                error!(
-                    "Failed to create exec session for user {}: {:?}",
-                    username, e
-                );
+            Ok(session_id) => session_id,
+            Err(error) => {
+                error!("Failed to create exec session: {:?}", error);
                 let error_msg = "Failed to create session\r\n";
                 self.renderer
                     .send_data(channel, session, error_msg.as_bytes());
+
                 self.terminate_channel(channel, session, 1, "exec_session_create_failed")
                     .await;
 
@@ -334,9 +285,8 @@ impl server::Handler for ProxyServer {
             }
         };
 
-        self.session_id = Some(session_id.clone());
-
         if let Err(e) = self
+            .context
             .session_manager
             .push_command(&session_id, command.clone())
             .await
@@ -361,6 +311,7 @@ impl server::Handler for ProxyServer {
     ) -> Result<(), Self::Error> {
         if let Some(ref session_id) = self.session_id
             && let Err(e) = self
+                .context
                 .session_manager
                 .update_window_size(session_id, col_width as u16, row_height as u16)
                 .await
@@ -403,6 +354,7 @@ impl server::Handler for ProxyServer {
 
                 if let Some(ref session_id) = self.session_id
                     && let Err(e) = self
+                        .context
                         .session_manager
                         .push_command(session_id, trimmed.to_string())
                         .await
@@ -441,7 +393,7 @@ impl server::Handler for ProxyServer {
                     channel,
                     session,
                     username,
-                    &self.config.server.name,
+                    &self.context.config.server.name,
                     cwd.as_deref(),
                     buf,
                     cursor,
@@ -462,7 +414,12 @@ impl server::Handler for ProxyServer {
                 self.log_session_close(session_id, "Channel closed", "channel_close")
                     .await;
 
-                if let Err(e) = self.session_manager.remove_session(session_id).await {
+                if let Err(e) = self
+                    .context
+                    .session_manager
+                    .remove_session(session_id)
+                    .await
+                {
                     error!(
                         "Failed to remove session {} on channel close: {:?}",
                         session_id, e
@@ -494,13 +451,13 @@ impl ProxyServer {
             channel,
             session,
             self.get_username(),
-            &self.config.server.name,
+            &self.context.config.server.name,
             cwd.as_deref(),
         );
     }
 
     async fn get_session_cwd(&self, session_id: &str) -> Option<String> {
-        if let Some(session_lock) = self.session_manager.get_session(session_id).await {
+        if let Some(session_lock) = self.context.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
 
             return session_data
@@ -512,9 +469,16 @@ impl ProxyServer {
         None
     }
 
-    async fn update_session_cwd(&self, session_id: &str, cwd: &str) -> anyhow::Result<()> {
+    pub(super) async fn update_session_cwd(
+        &self,
+        session_id: &str,
+        cwd: &str,
+    ) -> anyhow::Result<()> {
         let path = PathBuf::from(cwd);
-        self.session_manager.update_cwd(session_id, path).await
+        self.context
+            .session_manager
+            .update_cwd(session_id, path)
+            .await
     }
 
     fn confirm_channel(&self, channel: ChannelId, session: &mut Session, context: &str) {
@@ -559,17 +523,18 @@ impl ProxyServer {
         }
     }
 
-    async fn ensure_backend_connected(
+    pub(super) async fn ensure_backend_connected(
         &mut self,
         session_id: &str,
-    ) -> anyhow::Result<Arc<crate::backend::handler::BackendConnection>> {
-        if let Ok(backend) = self.session_manager.get_backend(session_id).await {
+    ) -> anyhow::Result<Arc<Client>> {
+        if let Ok(backend) = self.context.session_manager.get_backend(session_id).await {
             return Ok(backend);
         }
 
         let preferred_backend = self.authenticated_backend.take();
         let (backend, initial_cwd) = self
-            .backend_pool
+            .context
+            .client_pool
             .create_connection(
                 preferred_backend.as_deref(),
                 self.username.as_deref(),
@@ -577,18 +542,12 @@ impl ProxyServer {
             )
             .await?;
 
-        self.session_manager
+        self.context
+            .session_manager
             .set_backend(session_id, backend.clone())
             .await?;
 
-        if let Some(cwd) = initial_cwd
-            && let Err(e) = self.update_session_cwd(session_id, &cwd).await
-        {
-            warn!(
-                "Failed to update initial CWD for session {}: {:?}",
-                session_id, e
-            );
-        }
+        self.initialize_session_cwd(session_id, initial_cwd).await;
 
         info!("Backend connection established for session {}", session_id);
         Ok(backend)
@@ -604,7 +563,7 @@ impl ProxyServer {
                 self.log_session_close(session_id, "Client requested exit", "exit_command")
                     .await;
 
-                if let Ok(backend) = self.session_manager.get_backend(session_id).await
+                if let Ok(backend) = self.context.session_manager.get_backend(session_id).await
                     && let Err(e) = backend.close().await
                 {
                     warn!(
@@ -613,7 +572,12 @@ impl ProxyServer {
                     );
                 }
 
-                if let Err(e) = self.session_manager.remove_session(session_id).await {
+                if let Err(e) = self
+                    .context
+                    .session_manager
+                    .remove_session(session_id)
+                    .await
+                {
                     error!("Failed to remove session {}: {:?}", session_id, e);
                 }
             }
@@ -635,34 +599,14 @@ impl ProxyServer {
         mode: CommandExecutionMode,
     ) {
         let command_info = CmdInfo::new_with_generated_id(self.get_username(), command);
-        if let Some(target_backend) = self.detector.detect(
-            &command_info,
-            self.get_username(),
-            self.password.as_deref().unwrap_or(""),
-        ) {
-            let resolved_backend = self
-                .config
-                .migration
-                .get(target_backend.as_str())
-                .cloned()
-                .unwrap_or(target_backend);
-            let should_migrate = self
-                .session_manager
-                .get_backend(session_id)
-                .await
-                .map(|backend| backend.name != resolved_backend)
-                .unwrap_or(true);
-
-            if should_migrate
-                && let Err(error) = self
-                    .perform_migration(session_id, &resolved_backend, channel, session)
-                    .await
-            {
-                error!(
-                    "Failed to route command '{}' to backend '{}': {:?}",
-                    command, resolved_backend, error
-                );
-            }
+        if let Some(target_backend) = self.resolve_migration_target(&command_info)
+            && self.should_migrate(session_id, &target_backend).await
+            && let Err(error) = self.perform_migration(session_id, &target_backend).await
+        {
+            error!(
+                "Failed to route command '{}' to backend '{}': {:?}",
+                command, target_backend, error
+            );
         }
 
         let backend = match self.ensure_backend_connected(session_id).await {
@@ -739,6 +683,32 @@ impl ProxyServer {
         }
     }
 
+    fn resolve_migration_target(&self, command_info: &CmdInfo) -> Option<String> {
+        let detected_backend = self.context.detector.detect(
+            command_info,
+            self.get_username(),
+            self.password.as_deref().unwrap_or(""),
+        )?;
+
+        Some(
+            self.context
+                .config
+                .migration
+                .get(detected_backend.as_str())
+                .cloned()
+                .unwrap_or(detected_backend),
+        )
+    }
+
+    async fn should_migrate(&self, session_id: &str, target_backend: &str) -> bool {
+        self.context
+            .session_manager
+            .get_backend(session_id)
+            .await
+            .map(|backend| backend.name != target_backend)
+            .unwrap_or(true)
+    }
+
     async fn handle_command_success(
         &mut self,
         channel: ChannelId,
@@ -768,7 +738,7 @@ impl ProxyServer {
 
         let cwd_str = response_cwd.as_deref().unwrap_or("/");
 
-        if let Some(session_lock) = self.session_manager.get_session(session_id).await {
+        if let Some(session_lock) = self.context.session_manager.get_session(session_id).await {
             let session_data = session_lock.read().await;
             let username = session_data.username.clone();
             drop(session_data);
@@ -789,6 +759,52 @@ impl ProxyServer {
             .await;
     }
 
+    async fn create_session_for_channel(
+        &mut self,
+        channel: ChannelId,
+        mode: CommandExecutionMode,
+        command: Option<&str>,
+    ) -> anyhow::Result<SessionId> {
+        let username = self.username.clone().context("username is not available")?;
+        let password = self.password.clone().context("password is not available")?;
+        let session_id = self
+            .context
+            .session_manager
+            .create_session(
+                self.session_id
+                    .clone()
+                    .context("session id must exist for accepted connections")?,
+                username.clone(),
+                password,
+                channel,
+            )
+            .await?;
+
+        self.session_id = Some(session_id.clone());
+        self.session_created = true;
+
+        match mode {
+            CommandExecutionMode::Shell => {
+                info!("Session {} created for user {}", session_id, username);
+                info!(
+                    "[SESSION START - SHELL] session_id={} user={}",
+                    session_id, username
+                );
+            }
+            CommandExecutionMode::Exec => {
+                info!("Exec session {} created for user {}", session_id, username);
+                info!(
+                    "[SESSION START - EXEC] session_id={} user={} command={}",
+                    session_id,
+                    username,
+                    command.unwrap_or_default()
+                );
+            }
+        }
+
+        Ok(session_id)
+    }
+
     async fn handle_detection_and_migration(
         &mut self,
         channel: ChannelId,
@@ -807,65 +823,16 @@ impl ProxyServer {
         }
     }
 
-    async fn perform_migration(
-        &mut self,
-        session_id: &str,
-        target_backend: &str,
-        _channel: ChannelId,
-        mut _session: &mut Session,
-    ) -> anyhow::Result<()> {
+    pub(super) async fn session_cwd(&self, session_id: &str) -> anyhow::Result<Option<PathBuf>> {
         let session_lock = self
+            .context
             .session_manager
             .get_session(session_id)
             .await
             .context("Session not found")?;
 
-        let current_cwd = {
-            let session_data = session_lock.read().await;
-            session_data.terminal_state.cwd.clone()
-        };
-
-        let old_backend = match self.session_manager.get_backend(session_id).await {
-            Ok(backend) => backend,
-            Err(_) => self.ensure_backend_connected(session_id).await?,
-        };
-
-        let (new_backend, _initial_cwd) = self
-            .backend_pool
-            .create_connection(
-                Some(target_backend),
-                self.username.as_deref(),
-                self.password.as_deref(),
-            )
-            .await?;
-
-        self.session_manager
-            .set_backend(session_id, new_backend.clone())
-            .await?;
-
-        if let Err(e) = old_backend.close().await {
-            warn!(
-                "Failed to close old backend while migrating session {}: {:?}",
-                session_id, e
-            );
-        }
-
-        if let Some(cwd) = current_cwd {
-            let cd_cmd = format!("cd {}", cwd.display());
-
-            if let Ok(result) = new_backend.execute_command(&cd_cmd).await
-                && let Some(verified_cwd) = result.cwd
-                && let Err(e) = self.update_session_cwd(session_id, &verified_cwd).await
-            {
-                warn!(
-                    "Failed to update migrated CWD for session {}: {:?}",
-                    session_id, e
-                );
-            }
-            info!("Reproduced CWD: {}", cwd.display());
-        }
-
-        Ok(())
+        let session_data = session_lock.read().await;
+        Ok(session_data.terminal_state.cwd.clone())
     }
 
     async fn handle_tab_completion(
@@ -876,7 +843,7 @@ impl ProxyServer {
     ) {
         let current_buffer = self.reader.get_buffer_clone();
 
-        let backend = match self.session_manager.get_backend(session_id).await {
+        let backend = match self.context.session_manager.get_backend(session_id).await {
             Ok(backend) => backend,
             Err(_) => {
                 warn!("No backend available for tab completion");
@@ -915,7 +882,7 @@ impl ProxyServer {
                     channel,
                     session,
                     username,
-                    &self.config.server.name,
+                    &self.context.config.server.name,
                     cwd.as_deref(),
                     buf,
                     cursor,
@@ -961,219 +928,9 @@ impl ProxyServer {
         .await;
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn log_command_execution(
-        &self,
-        session_id: &str,
-        command: &str,
-        backend_response_raw: Option<&[u8]>,
-        backend_response_displayed: Option<&[u8]>,
-        backend_response_error: Option<&str>,
-        cwd_override: Option<&str>,
-        response_timestamp: chrono::DateTime<Utc>,
-        response_latency_ms: i64,
-        prompt_returned: bool,
-        end_reason: &CommandEndReason,
-    ) {
-        let session_lock = match self.session_manager.get_session(session_id).await {
-            Some(session_lock) => session_lock,
-            None => return,
-        };
-
-        let session_data = session_lock.read().await;
-        let username = session_data.username.clone();
-        let cwd = cwd_override
-            .map(|path| path.to_string())
-            .or_else(|| {
-                session_data
-                    .terminal_state
-                    .cwd
-                    .as_ref()
-                    .map(|path| path.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| "/".to_string());
-        let input_timestamp = session_data
-            .terminal_state
-            .last_cmd
-            .as_ref()
-            .map(|cmd_info| cmd_info.ts)
-            .unwrap_or(response_timestamp);
-        let command_id = session_data
-            .terminal_state
-            .last_cmd
-            .as_ref()
-            .map(|cmd_info| cmd_info.command_id.clone())
-            .unwrap_or_else(|| "unknown".to_string());
-        drop(session_data);
-
-        let raw_response =
-            backend_response_raw.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
-        let displayed_response =
-            backend_response_displayed.map(|bytes| String::from_utf8_lossy(bytes).into_owned());
-
-        let destination = self
-            .session_manager
-            .get_backend(session_id)
-            .await
-            .ok()
-            .map(|backend| {
-                let backend_name = backend.name.clone();
-                (backend_name, backend)
-            });
-        let destination_config = match destination.as_ref() {
-            Some((backend_name, _)) => self.backend_pool.get_backend_config(backend_name).await,
-            None => None,
-        };
-
-        let logger = self.session_manager.get_logger();
-        let logger_guard = logger.lock().await;
-        let (src_ip, src_port) = self.client_address();
-
-        logger_guard.log_command_event(&CommandLogEvent {
-            session_id,
-            command_id: &command_id,
-            src_ip: &src_ip,
-            src_port,
-            username: &username,
-            command,
-            cwd: &cwd,
-            input_timestamp,
-            response_timestamp,
-            response_latency_ms,
-            prompt_returned,
-            end_reason: match end_reason {
-                CommandEndReason::Prompt => "prompt",
-                CommandEndReason::ExitStatus => "exit_status",
-                CommandEndReason::Eof => "eof",
-                CommandEndReason::Timeout => "timeout",
-            },
-            backend_response_raw: raw_response.as_deref(),
-            backend_response_displayed: displayed_response.as_deref(),
-            backend_response_error,
-            success: backend_response_error.is_none(),
-            dest_backend: destination.as_ref().map(|(name, _)| name.as_str()),
-            dest_ip: destination_config
-                .as_ref()
-                .map(|config| config.hostname.as_str()),
-            dest_port: destination_config.as_ref().map(|config| config.port),
-        });
-    }
-
-    async fn log_session_close(&self, session_id: &str, message: &str, exit_point: &str) {
-        if !self.session_created {
-            return;
-        }
-
-        let session_lock = match self.session_manager.get_session(session_id).await {
-            Some(session_lock) => session_lock,
-            None => return,
-        };
-
-        let session_data = session_lock.read().await;
-        let username = session_data.username.clone();
-        let started_at = session_data.started_at;
-        drop(session_data);
-
-        let duration_secs = Utc::now()
-            .signed_duration_since(started_at)
-            .num_milliseconds() as f64
-            / 1000.0;
-
-        let logger = self.session_manager.get_logger();
-        let logger_guard = logger.lock().await;
-        let (src_ip, src_port) = self.client_address();
-        logger_guard.log_session_close(
-            session_id,
-            &src_ip,
-            src_port,
-            &username,
-            duration_secs,
-            message,
-        );
-        drop(logger_guard);
-
-        info!(
-            "[SESSION EXIT] session_id={} user={} exit_point={}",
-            session_id, username, exit_point
-        );
-    }
-
-    fn client_address(&self) -> (String, u16) {
+    pub(super) fn client_address(&self) -> (String, u16) {
         self.peer_addr
             .map(|addr| (addr.ip().to_string(), addr.port()))
             .unwrap_or_else(|| ("unknown".to_string(), 0))
-    }
-}
-
-pub struct ProxyServerFactory {
-    config: Arc<AppConfig>,
-    session_manager: Arc<SessionManager>,
-    backend_pool: Arc<BackendPool>,
-    detector: Arc<dyn Detector>,
-    accept_any: bool,
-    authenticator: Option<Arc<FileBasedAuthenticator>>,
-    motd: String,
-}
-
-impl ProxyServerFactory {
-    pub fn new(
-        config: Arc<AppConfig>,
-        session_manager: Arc<SessionManager>,
-        backend_pool: Arc<BackendPool>,
-        detector: Arc<dyn Detector>,
-    ) -> Self {
-        let accept_any = config.auth.accept_any;
-
-        let mut authenticator: Option<Arc<FileBasedAuthenticator>> = None;
-        let primary = config.auth.user_db_path.clone();
-
-        match FileBasedAuthenticator::new(primary.to_string_lossy().as_ref()) {
-            Ok(auth) => authenticator = Some(Arc::new(auth)),
-            Err(err) => {
-                let fallback = std::path::PathBuf::from("config/user.txt");
-
-                match FileBasedAuthenticator::new(fallback.to_string_lossy().as_ref()) {
-                    Ok(auth) => authenticator = Some(Arc::new(auth)),
-                    Err(err2) => {
-                        warn!(
-                            "Failed to load user db: {} ({}) and fallback {} ({})",
-                            primary.display(),
-                            err,
-                            fallback.display(),
-                            err2
-                        );
-                    }
-                }
-            }
-        }
-
-        let motd = return_motd("/config/motd.txt");
-
-        Self {
-            config,
-            session_manager,
-            backend_pool,
-            detector,
-            accept_any,
-            authenticator,
-            motd,
-        }
-    }
-}
-
-impl server::Server for ProxyServerFactory {
-    type Handler = ProxyServer;
-
-    fn new_client(&mut self, peer_addr: Option<std::net::SocketAddr>) -> Self::Handler {
-        ProxyServer::new(
-            self.config.clone(),
-            self.session_manager.clone(),
-            self.backend_pool.clone(),
-            self.detector.clone(),
-            peer_addr,
-            self.accept_any,
-            self.authenticator.clone(),
-            self.motd.clone(),
-        )
     }
 }
