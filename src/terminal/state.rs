@@ -72,8 +72,4 @@ impl TerminalState {
         self.last_cmd = Some(info.clone());
         self.history.push(info);
     }
-
-    pub fn refresh_window_size(&mut self) -> Option<WindowSize> {
-        None
-    }
 }

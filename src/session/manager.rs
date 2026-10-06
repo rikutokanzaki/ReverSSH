@@ -15,14 +15,11 @@ use crate::terminal::state::{CmdInfo, TerminalState, WindowSize};
 pub type SessionId = String;
 
 pub struct SessionData {
-    pub session_id: SessionId,
     pub username: String,
-    pub password: String,
     pub client_channel: ChannelId,
     pub started_at: DateTime<Utc>,
     pub backend: Option<Arc<Client>>,
     pub terminal_state: TerminalState,
-    pub logger: SharedLogger,
 }
 
 pub struct SessionManager {
@@ -43,18 +40,14 @@ impl SessionManager {
         &self,
         session_id: SessionId,
         username: String,
-        password: String,
         client_channel: ChannelId,
     ) -> Result<SessionId> {
         let session_data = SessionData {
-            session_id: session_id.clone(),
             username: username.clone(),
-            password,
             client_channel,
             started_at: Utc::now(),
             backend: None,
             terminal_state: TerminalState::new(),
-            logger: self.logger.clone(),
         };
 
         let mut sessions = self.sessions.write().await;
@@ -156,15 +149,5 @@ impl SessionManager {
         }
 
         Ok(())
-    }
-
-    pub async fn list_sessions(&self) -> Vec<SessionId> {
-        let sessions = self.sessions.read().await;
-        sessions.keys().cloned().collect()
-    }
-
-    pub async fn count(&self) -> usize {
-        let sessions = self.sessions.read().await;
-        sessions.len()
     }
 }

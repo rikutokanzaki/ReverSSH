@@ -766,7 +766,6 @@ impl ProxyServer {
         command: Option<&str>,
     ) -> anyhow::Result<SessionId> {
         let username = self.username.clone().context("username is not available")?;
-        let password = self.password.clone().context("password is not available")?;
         let session_id = self
             .context
             .session_manager
@@ -775,7 +774,6 @@ impl ProxyServer {
                     .clone()
                     .context("session id must exist for accepted connections")?,
                 username.clone(),
-                password,
                 channel,
             )
             .await?;

@@ -14,15 +14,6 @@ pub struct KeywordDetector {
     pub target: String,
 }
 
-impl KeywordDetector {
-    pub fn new(keywords: &[&str], target: &str) -> Self {
-        Self {
-            keywords: keywords.iter().map(|s| s.to_string()).collect(),
-            target: target.to_string(),
-        }
-    }
-}
-
 pub struct RegexDetector {
     pub re: Regex,
     pub target: String,
