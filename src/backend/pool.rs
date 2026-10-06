@@ -12,7 +12,7 @@ struct AuthenticationRoute {
     credentials: Vec<String>,
 }
 
-pub struct BackendPool {
+pub(crate) struct BackendPool {
     backends: Arc<RwLock<HashMap<String, BackendConfig>>>,
     default_interaction_backend: Option<String>,
     default_credential_backend: Option<String>,
@@ -20,7 +20,7 @@ pub struct BackendPool {
 }
 
 impl BackendPool {
-    pub fn new(
+    pub(crate) fn new(
         configs: Vec<BackendConfig>,
         authentication_rules: &[AuthenticationRuleConfig],
     ) -> Self {
@@ -56,7 +56,7 @@ impl BackendPool {
         }
     }
 
-    pub async fn create_connection(
+    pub(crate) async fn create_connection(
         &self,
         backend_name: Option<&str>,
         username: Option<&str>,
@@ -82,7 +82,7 @@ impl BackendPool {
         Ok((Arc::new(connection), initial_cwd))
     }
 
-    pub async fn observe_failed_auth(&self, username: &str, password: &str) -> Result<()> {
+    pub(crate) async fn observe_failed_auth(&self, username: &str, password: &str) -> Result<()> {
         let config = {
             let backends = self.backends.read().await;
             self.credential_backend_config_from(&backends, username, password)
@@ -97,7 +97,7 @@ impl BackendPool {
         connection.close().await
     }
 
-    pub async fn credential_backend_for_auth(
+    pub(crate) async fn credential_backend_for_auth(
         &self,
         username: &str,
         password: &str,
@@ -136,7 +136,7 @@ impl BackendPool {
             })
     }
 
-    pub async fn interaction_backend_for_auth(
+    pub(crate) async fn interaction_backend_for_auth(
         &self,
         username: &str,
         password: &str,
@@ -156,7 +156,7 @@ impl BackendPool {
             .map(|backend| backend.name.clone())
     }
 
-    pub async fn get_backend_config(&self, name: &str) -> Option<BackendConfig> {
+    pub(crate) async fn get_backend_config(&self, name: &str) -> Option<BackendConfig> {
         let backends = self.backends.read().await;
         backends.get(name).cloned()
     }

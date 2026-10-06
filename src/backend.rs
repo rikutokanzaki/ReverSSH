@@ -1,2 +1,2 @@
-pub mod handler;
-pub mod pool;
+pub(crate) mod handler;
+pub(crate) mod pool;

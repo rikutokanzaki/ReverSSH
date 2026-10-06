@@ -23,7 +23,7 @@ use crate::terminal::reader::{InputEvent, LineReader};
 use crate::terminal::renderer::Renderer;
 use crate::terminal::state::CmdInfo;
 
-pub struct ProxyServer {
+pub(crate) struct ProxyServer {
     config: Arc<AppConfig>,
     session_manager: Arc<SessionManager>,
     backend_pool: Arc<BackendPool>,
@@ -53,7 +53,7 @@ enum CommandExecutionMode {
 
 impl ProxyServer {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    fn new(
         config: Arc<AppConfig>,
         session_manager: Arc<SessionManager>,
         backend_pool: Arc<BackendPool>,
@@ -229,7 +229,7 @@ impl server::Handler for ProxyServer {
     ) -> Result<(), Self::Error> {
         self.shell_active = true;
 
-        if let (Some(username), Some(password)) = (self.username.as_ref(), self.password.as_ref()) {
+        if let (Some(username), Some(_)) = (self.username.as_ref(), self.password.as_ref()) {
             let session_id = self
                 .session_id
                 .clone()
@@ -237,12 +237,7 @@ impl server::Handler for ProxyServer {
 
             match self
                 .session_manager
-                .create_session(
-                    session_id.clone(),
-                    username.clone(),
-                    password.clone(),
-                    channel,
-                )
+                .create_session(session_id.clone(), username.clone(), channel)
                 .await
             {
                 Ok(session_id) => {
@@ -283,8 +278,8 @@ impl server::Handler for ProxyServer {
         let command = String::from_utf8_lossy(data).to_string();
         info!("Exec request: {}", command);
 
-        let (username, password) = match (&self.username, &self.password) {
-            (Some(u), Some(p)) => (u.clone(), p.clone()),
+        let username = match (&self.username, &self.password) {
+            (Some(u), Some(_)) => u.clone(),
             _ => {
                 error!("No credentials available for exec request");
                 let error_msg = "Authentication required\r\n";
@@ -305,7 +300,6 @@ impl server::Handler for ProxyServer {
                     .clone()
                     .expect("session id must exist for accepted connections"),
                 username.clone(),
-                password.clone(),
                 channel,
             )
             .await
@@ -1105,7 +1099,7 @@ impl ProxyServer {
     }
 }
 
-pub struct ProxyServerFactory {
+pub(crate) struct ProxyServerFactory {
     config: Arc<AppConfig>,
     session_manager: Arc<SessionManager>,
     backend_pool: Arc<BackendPool>,
@@ -1116,7 +1110,7 @@ pub struct ProxyServerFactory {
 }
 
 impl ProxyServerFactory {
-    pub fn new(
+    pub(crate) fn new(
         config: Arc<AppConfig>,
         session_manager: Arc<SessionManager>,
         backend_pool: Arc<BackendPool>,

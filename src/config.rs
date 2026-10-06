@@ -1,6 +1,6 @@
-pub mod app;
-pub mod loader;
-pub mod validate;
+mod app;
+mod loader;
+mod validate;
 
 pub use app::{
     AppConfig, AuthConfig, AuthType, AuthenticationRuleConfig, BackendConfig, BackendType,

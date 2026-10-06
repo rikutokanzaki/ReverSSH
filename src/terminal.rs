@@ -1,4 +1,4 @@
-pub mod parser;
-pub mod reader;
-pub mod renderer;
-pub mod state;
+pub(crate) mod parser;
+pub(crate) mod reader;
+pub(crate) mod renderer;
+pub(crate) mod state;

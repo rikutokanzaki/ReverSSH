@@ -174,22 +174,3 @@ fn default_history_size() -> usize {
 fn default_user_db_path() -> PathBuf {
     PathBuf::from("/config/user.txt")
 }
-
-pub struct LineReader {
-    history_size: usize,
-    buffer: Vec<String>,
-}
-
-impl LineReader {
-    pub fn new(history_size: usize) -> Self {
-        LineReader {
-            history_size,
-            buffer: Vec::new(),
-        }
-    }
-
-    pub fn read(&mut self, line: &str) -> bool {
-        self.buffer.push(line.to_string());
-        self.buffer.len() <= self.history_size
-    }
-}

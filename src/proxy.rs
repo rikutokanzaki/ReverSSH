@@ -1,4 +1,4 @@
-pub mod authenticator;
-pub mod host_key;
-pub mod motd;
-pub mod server;
+pub(crate) mod authenticator;
+pub(crate) mod host_key;
+pub(crate) mod motd;
+pub(crate) mod server;

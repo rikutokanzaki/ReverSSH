@@ -1,3 +1,1 @@
-pub mod connection;
-
-pub use connection::Client;
+pub(crate) mod connection;

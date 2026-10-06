@@ -4,7 +4,7 @@ use russh::keys::ssh_encoding::bytes::Bytes;
 use russh::server::Session;
 use unicode_width::UnicodeWidthChar;
 
-pub struct Renderer;
+pub(crate) struct Renderer;
 
 impl Default for Renderer {
     fn default() -> Self {
@@ -13,17 +13,22 @@ impl Default for Renderer {
 }
 
 impl Renderer {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
-    pub fn generate_prompt(&self, username: &str, server_name: &str, cwd: Option<&str>) -> String {
+    pub(crate) fn generate_prompt(
+        &self,
+        username: &str,
+        server_name: &str,
+        cwd: Option<&str>,
+    ) -> String {
         let symbol = if username == "root" { "#" } else { "$" };
         let display_cwd = cwd.unwrap_or("~");
         format!("{username}@{server_name}:{display_cwd}{symbol} ")
     }
 
-    pub fn send_prompt(
+    pub(crate) fn send_prompt(
         &self,
         channel: ChannelId,
         session: &mut Session,
@@ -36,7 +41,7 @@ impl Renderer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn redraw_line(
+    pub(crate) fn redraw_line(
         &self,
         channel: ChannelId,
         session: &mut Session,
@@ -65,16 +70,16 @@ impl Renderer {
         self.send_data(channel, session, out.as_bytes());
     }
 
-    pub fn send_data(&self, channel: ChannelId, session: &mut Session, data: &[u8]) {
+    pub(crate) fn send_data(&self, channel: ChannelId, session: &mut Session, data: &[u8]) {
         let data = normalize_line_endings(data);
         session.data(channel, Bytes::from(data.to_vec())).ok();
     }
 
-    pub fn send_newline(&self, channel: ChannelId, session: &mut Session) {
+    pub(crate) fn send_newline(&self, channel: ChannelId, session: &mut Session) {
         self.send_data(channel, session, b"\r\n");
     }
 
-    pub fn clean_and_close(
+    pub(crate) fn clean_and_close(
         &self,
         channel: ChannelId,
         session: &mut Session,

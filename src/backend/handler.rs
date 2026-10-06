@@ -9,35 +9,39 @@ use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
 
 use crate::client::connection::Client;
-use crate::config::app::{AuthType, BackendConfig};
+use crate::config::{AuthType, BackendConfig};
 use crate::terminal::parser::TerminalOutputParser;
 
 #[derive(Debug, Clone)]
-pub enum CommandEndReason {
+pub(crate) enum CommandEndReason {
     Prompt,
     ExitStatus,
     Eof,
     Timeout,
 }
 
-pub struct CommandExecutionResult {
-    pub raw_output: Vec<u8>,
-    pub displayed_output: Vec<u8>,
-    pub cwd: Option<String>,
-    pub first_response_timestamp: chrono::DateTime<Utc>,
-    pub first_response_latency_ms: i64,
-    pub end_reason: CommandEndReason,
-    pub prompt_returned: bool,
+pub(crate) struct CommandExecutionResult {
+    pub(crate) raw_output: Vec<u8>,
+    pub(crate) displayed_output: Vec<u8>,
+    pub(crate) cwd: Option<String>,
+    pub(crate) first_response_timestamp: chrono::DateTime<Utc>,
+    pub(crate) first_response_latency_ms: i64,
+    pub(crate) end_reason: CommandEndReason,
+    pub(crate) prompt_returned: bool,
 }
 
-pub struct BackendConnection {
-    pub name: String,
-    pub handle: Arc<Mutex<Handle<Client>>>,
-    pub channel: Arc<Mutex<Option<Channel<ClientMsg>>>>,
+pub(crate) struct BackendConnection {
+    pub(crate) name: String,
+    handle: Arc<Mutex<Handle<Client>>>,
+    channel: Arc<Mutex<Option<Channel<ClientMsg>>>>,
 }
 
 impl BackendConnection {
-    pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
+    pub(crate) async fn connect(
+        config: BackendConfig,
+        username: &str,
+        password: &str,
+    ) -> Result<Self> {
         let client_config = client::Config::default();
 
         let client = Client;
@@ -84,7 +88,7 @@ impl BackendConnection {
         })
     }
 
-    pub async fn open_channel(&self) -> Result<Option<String>> {
+    pub(crate) async fn open_channel(&self) -> Result<Option<String>> {
         let handle = self.handle.lock().await;
         let mut channel = handle
             .channel_open_session()
@@ -149,7 +153,7 @@ impl BackendConnection {
         }
     }
 
-    pub async fn execute_command(&self, cmd: &str) -> Result<CommandExecutionResult> {
+    pub(crate) async fn execute_command(&self, cmd: &str) -> Result<CommandExecutionResult> {
         let mut channel_lock = self.channel.lock().await;
         let channel = channel_lock.as_mut().context("Channel not opened")?;
 
@@ -230,7 +234,7 @@ impl BackendConnection {
         })
     }
 
-    pub async fn close(&self) -> Result<()> {
+    pub(crate) async fn close(&self) -> Result<()> {
         if let Some(channel) = self.channel.lock().await.take()
             && let Err(e) = channel.eof().await
         {
@@ -245,7 +249,7 @@ impl BackendConnection {
         Ok(())
     }
 
-    pub async fn send_tab_completion(&self, current_buffer: &str) -> Result<Vec<u8>> {
+    pub(crate) async fn send_tab_completion(&self, current_buffer: &str) -> Result<Vec<u8>> {
         let mut channel_lock = self.channel.lock().await;
         let channel = channel_lock.as_mut().context("Channel not opened")?;
 

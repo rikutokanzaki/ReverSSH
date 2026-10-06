@@ -1,11 +1,10 @@
 use std::collections::VecDeque;
 
-pub enum InputEvent {
+pub(crate) enum InputEvent {
     Char(char),
     Backspace,
     Delete,
     Enter,
-    Escape,
     ArrowUp,
     ArrowDown,
     ArrowRight,
@@ -14,7 +13,7 @@ pub enum InputEvent {
     Unknown,
 }
 
-pub struct LineReader {
+pub(crate) struct LineReader {
     buffer: String,
     cursor: usize,
     esc_buffer: Vec<u8>,
@@ -28,7 +27,7 @@ pub struct LineReader {
 const MAX_ESC_BUFFER: usize = 16;
 
 impl LineReader {
-    pub fn new(history_max: usize) -> Self {
+    pub(crate) fn new(history_max: usize) -> Self {
         Self {
             buffer: String::new(),
             cursor: 0,
@@ -41,25 +40,25 @@ impl LineReader {
         }
     }
 
-    pub fn buffer(&self) -> &str {
+    pub(crate) fn buffer(&self) -> &str {
         &self.buffer
     }
 
-    pub fn cursor(&self) -> usize {
+    pub(crate) fn cursor(&self) -> usize {
         self.cursor
     }
 
-    pub fn replace_buffer(&mut self, new_content: String) {
+    pub(crate) fn replace_buffer(&mut self, new_content: String) {
         self.buffer = new_content;
         self.cursor = self.buffer.len();
         self.history_pos = None;
     }
 
-    pub fn get_buffer_clone(&self) -> String {
+    pub(crate) fn get_buffer_clone(&self) -> String {
         self.buffer.clone()
     }
 
-    pub fn feed_bytes(&mut self, data: &[u8]) -> Vec<InputEvent> {
+    pub(crate) fn feed_bytes(&mut self, data: &[u8]) -> Vec<InputEvent> {
         let mut events = Vec::new();
 
         for &byte in data {
@@ -124,7 +123,7 @@ impl LineReader {
         }
     }
 
-    pub fn apply(&mut self, event: InputEvent) -> Option<String> {
+    pub(crate) fn apply(&mut self, event: InputEvent) -> Option<String> {
         match event {
             InputEvent::Char(c) => {
                 self.buffer.insert(self.cursor, c);

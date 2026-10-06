@@ -2,18 +2,18 @@ use std::fs;
 
 type AuthRule = (String, String);
 
-pub type AuthResult = String;
+type AuthResult = String;
 
-pub trait Authentication: Send + Sync {
+pub(crate) trait Authentication: Send + Sync {
     fn auth(&self, username: &str, password: &str) -> Option<AuthResult>;
 }
 
-pub struct FileBasedAuthenticator {
+pub(crate) struct FileBasedAuthenticator {
     rules: Vec<AuthRule>,
 }
 
 impl FileBasedAuthenticator {
-    pub fn new(file_path: &str) -> Result<Self, std::io::Error> {
+    pub(crate) fn new(file_path: &str) -> Result<Self, std::io::Error> {
         let content = fs::read_to_string(file_path)?;
         let rules = Self::parse_rules(&content);
 

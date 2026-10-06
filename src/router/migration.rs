@@ -5,31 +5,22 @@ use std::sync::Arc;
 use crate::config::RoutingRuleConfig;
 use crate::terminal::state::CmdInfo;
 
-pub trait Detector: Send + Sync {
+pub(crate) trait Detector: Send + Sync {
     fn detect(&self, cmd: &CmdInfo, username: &str, password: &str) -> Option<String>;
 }
 
-pub struct KeywordDetector {
-    pub keywords: Vec<String>,
-    pub target: String,
+pub(crate) struct KeywordDetector {
+    keywords: Vec<String>,
+    target: String,
 }
 
-impl KeywordDetector {
-    pub fn new(keywords: &[&str], target: &str) -> Self {
-        Self {
-            keywords: keywords.iter().map(|s| s.to_string()).collect(),
-            target: target.to_string(),
-        }
-    }
-}
-
-pub struct RegexDetector {
-    pub re: Regex,
-    pub target: String,
+pub(crate) struct RegexDetector {
+    re: Regex,
+    target: String,
 }
 
 impl RegexDetector {
-    pub fn new(pattern: &str, target: &str) -> Result<Self> {
+    fn new(pattern: &str, target: &str) -> Result<Self> {
         Ok(Self {
             re: Regex::new(pattern).with_context(|| format!("invalid routing regex: {pattern}"))?,
             target: target.to_string(),
@@ -37,7 +28,7 @@ impl RegexDetector {
     }
 }
 
-pub struct AuthDetector {
+pub(crate) struct AuthDetector {
     rules: Vec<AuthRule>,
     target: String,
 }
@@ -74,7 +65,7 @@ impl GlobPattern {
 }
 
 impl AuthDetector {
-    pub fn new(patterns: &[String], target: &str) -> Result<Self> {
+    fn new(patterns: &[String], target: &str) -> Result<Self> {
         let mut rules = Vec::with_capacity(patterns.len());
 
         for pattern in patterns {
@@ -95,7 +86,7 @@ impl AuthDetector {
     }
 }
 
-pub fn build_rule_detectors(rule: &RoutingRuleConfig) -> Result<Vec<Arc<dyn Detector>>> {
+pub(crate) fn build_rule_detectors(rule: &RoutingRuleConfig) -> Result<Vec<Arc<dyn Detector>>> {
     let mut detectors: Vec<Arc<dyn Detector>> = Vec::new();
 
     for pattern in &rule.regex {
@@ -116,8 +107,8 @@ pub fn build_rule_detectors(rule: &RoutingRuleConfig) -> Result<Vec<Arc<dyn Dete
     Ok(detectors)
 }
 
-pub struct CompositeDetector {
-    pub detectors: Vec<Arc<dyn Detector>>,
+pub(crate) struct CompositeDetector {
+    pub(crate) detectors: Vec<Arc<dyn Detector>>,
 }
 
 impl Detector for KeywordDetector {

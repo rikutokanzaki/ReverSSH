@@ -1,6 +1,6 @@
 use russh::client;
 
-pub struct Client;
+pub(crate) struct Client;
 
 impl client::Handler for Client {
     type Error = anyhow::Error;

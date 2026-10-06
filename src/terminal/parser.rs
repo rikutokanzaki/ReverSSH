@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 
-pub struct TerminalOutputParser;
+pub(crate) struct TerminalOutputParser;
 
 lazy_static! {
     static ref ANSI_ESCAPE_RE: Regex =
@@ -9,7 +9,7 @@ lazy_static! {
 }
 
 impl TerminalOutputParser {
-    pub fn is_prompt(data: &[u8]) -> bool {
+    pub(crate) fn is_prompt(data: &[u8]) -> bool {
         if let Ok(text) = std::str::from_utf8(data) {
             let ansi_stripped = ANSI_ESCAPE_RE.replace_all(text, "");
             return ansi_stripped
@@ -22,7 +22,7 @@ impl TerminalOutputParser {
         false
     }
 
-    pub fn extract_cwd_from_output(data: &[u8]) -> Option<String> {
+    pub(crate) fn extract_cwd_from_output(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
         let last_line = ansi_stripped
@@ -40,7 +40,7 @@ impl TerminalOutputParser {
         (!cwd.is_empty()).then(|| cwd.to_string())
     }
 
-    pub fn clean_output(data: &[u8], cmd: &str) -> Vec<u8> {
+    pub(crate) fn clean_output(data: &[u8], cmd: &str) -> Vec<u8> {
         let text = String::from_utf8_lossy(data);
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
         let mut lines: Vec<&str> = ansi_stripped.lines().collect();
@@ -71,7 +71,7 @@ impl TerminalOutputParser {
         }
     }
 
-    pub fn extract_completed_line(data: &[u8]) -> Option<String> {
+    pub(crate) fn extract_completed_line(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
 
