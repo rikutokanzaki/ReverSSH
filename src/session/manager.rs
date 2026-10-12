@@ -7,19 +7,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::backend::handler::BackendConnection;
+use crate::client::handler::Client;
 use crate::session::logger::SharedLogger;
 use crate::session::logger::create_logger;
 use crate::terminal::state::{CmdInfo, TerminalState, WindowSize};
 
 pub(crate) type SessionId = String;
 
-pub(crate) struct SessionData {
-    pub(crate) username: String,
-    pub(crate) client_channel: ChannelId,
-    pub(crate) started_at: DateTime<Utc>,
-    pub(crate) backend: Option<Arc<BackendConnection>>,
-    pub(crate) terminal_state: TerminalState,
+pub struct SessionData {
+    pub username: String,
+    pub client_channel: ChannelId,
+    pub started_at: DateTime<Utc>,
+    pub backend: Option<Arc<Client>>,
+    pub terminal_state: TerminalState,
 }
 
 pub(crate) struct SessionManager {
@@ -66,11 +66,7 @@ impl SessionManager {
         sessions.get(session_id).cloned()
     }
 
-    pub(crate) async fn set_backend(
-        &self,
-        session_id: &str,
-        backend: Arc<BackendConnection>,
-    ) -> Result<()> {
+    pub async fn set_backend(&self, session_id: &str, backend: Arc<Client>) -> Result<()> {
         let session_lock = self
             .get_session(session_id)
             .await
@@ -81,7 +77,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub(crate) async fn get_backend(&self, session_id: &str) -> Result<Arc<BackendConnection>> {
+    pub async fn get_backend(&self, session_id: &str) -> Result<Arc<Client>> {
         let session_lock = self
             .get_session(session_id)
             .await

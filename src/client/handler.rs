@@ -1,16 +1,28 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use log::{info, warn};
-use russh::client::{self, AuthResult, Handle, Msg as ClientMsg};
+use russh::client::{self as russh_client, AuthResult, Handle, Msg as ClientMsg};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg};
 use russh::{Channel, ChannelMsg};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
 
-use crate::client::connection::Client;
 use crate::config::{AuthType, BackendConfig};
 use crate::terminal::parser::TerminalOutputParser;
+
+struct ClientHandler;
+
+impl russh_client::Handler for ClientHandler {
+    type Error = anyhow::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &russh::keys::PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum CommandEndReason {
@@ -30,26 +42,22 @@ pub(crate) struct CommandExecutionResult {
     pub(crate) prompt_returned: bool,
 }
 
-pub(crate) struct BackendConnection {
-    pub(crate) name: String,
-    handle: Arc<Mutex<Handle<Client>>>,
-    channel: Arc<Mutex<Option<Channel<ClientMsg>>>>,
+pub struct Client {
+    pub name: String,
+    handle: Arc<Mutex<Handle<ClientHandler>>>,
+    pub channel: Arc<Mutex<Option<Channel<ClientMsg>>>>,
 }
 
-impl BackendConnection {
-    pub(crate) async fn connect(
-        config: BackendConfig,
-        username: &str,
-        password: &str,
-    ) -> Result<Self> {
-        let client_config = client::Config::default();
+impl Client {
+    pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
+        let ssh_config = russh_client::Config::default();
 
-        let client = Client;
+        let handler = ClientHandler;
 
-        let mut session = client::connect(
-            Arc::new(client_config),
+        let mut session = russh_client::connect(
+            Arc::new(ssh_config),
             (config.hostname.as_str(), config.port),
-            client,
+            handler,
         )
         .await
         .context("Failed to connect to backend")?;

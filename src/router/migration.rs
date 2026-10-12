@@ -14,9 +14,9 @@ pub(crate) struct KeywordDetector {
     target: String,
 }
 
-pub(crate) struct RegexDetector {
-    re: Regex,
-    target: String,
+pub struct RegexDetector {
+    pub re: Regex,
+    pub target: String,
 }
 
 impl RegexDetector {

@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 
-mod backend;
 mod client;
 pub mod config;
 mod proxy;
@@ -14,10 +13,10 @@ mod router;
 mod session;
 mod terminal;
 
-use backend::pool::BackendPool;
+use client::pool::ClientPool;
 use config::{AppConfig, load_config, validate_config};
+use proxy::factory::ProxyServerFactory;
 use proxy::host_key::load_or_generate_host_key;
-use proxy::server::ProxyServerFactory;
 use router::rules::build_detector;
 use session::manager::SessionManager;
 
@@ -32,7 +31,7 @@ pub async fn run_with_config(config: AppConfig) -> Result<()> {
     let log_path = "/var/log/reverssh/reverssh.log".to_string();
     let session_manager = Arc::new(SessionManager::new(log_path));
 
-    let backend_pool = Arc::new(BackendPool::new(
+    let client_pool = Arc::new(ClientPool::new(
         config.backends.clone(),
         &config.routing.authentication,
     ));
@@ -55,7 +54,7 @@ pub async fn run_with_config(config: AppConfig) -> Result<()> {
     let mut server_factory = ProxyServerFactory::new(
         config_arc.clone(),
         session_manager.clone(),
-        backend_pool,
+        client_pool,
         detector,
     );
 

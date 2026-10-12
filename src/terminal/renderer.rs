@@ -87,11 +87,14 @@ impl Renderer {
     ) {
         let mut out = Vec::new();
         out.extend_from_slice(b"\x1b[0m");
+
         if let Some(msg) = final_message {
             out.extend_from_slice(msg.as_bytes());
             out.extend_from_slice(b"\r\n");
         }
+
         self.send_data(channel, session, &out);
+
         if let Err(e) = session.close(channel) {
             warn!("Failed to close channel after cleaning terminal: {:?}", e);
         }

@@ -69,6 +69,7 @@ impl TerminalState {
         if let Some(ref ws) = self.window_size {
             info.window_size_at_exec = Some(ws.clone());
         }
+
         self.last_cmd = Some(info.clone());
         self.history.push(info);
     }
