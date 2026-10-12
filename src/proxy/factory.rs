@@ -13,7 +13,6 @@ use crate::proxy::server::ProxyServer;
 use crate::router::migration::Detector;
 use crate::session::manager::SessionManager;
 
-/// Builds one per-connection [`ProxyServer`] handler from shared services.
 pub struct ProxyServerFactory {
     context: Arc<ProxyContext>,
     accept_any: bool,

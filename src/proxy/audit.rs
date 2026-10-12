@@ -46,6 +46,7 @@ impl ProxyServer {
             .as_ref()
             .map(|cmd| cmd.command_id.clone())
             .unwrap_or_else(|| "unknown".to_string());
+
         drop(session_data);
 
         let destination = self
@@ -66,6 +67,7 @@ impl ProxyServer {
         let (src_ip, src_port) = self.client_address();
         let logger = self.context.session_manager.get_logger();
         let logger_guard = logger.lock().await;
+
         logger_guard.log_command_event(&CommandLogEvent {
             session_id,
             command_id: &command_id,
@@ -105,6 +107,7 @@ impl ProxyServer {
         if !self.session_created {
             return;
         }
+
         let Some(session_lock) = self.context.session_manager.get_session(session_id).await else {
             return;
         };
@@ -114,7 +117,9 @@ impl ProxyServer {
             .signed_duration_since(session_data.started_at)
             .num_milliseconds() as f64
             / 1000.0;
+
         drop(session_data);
+
         let (src_ip, src_port) = self.client_address();
         let logger = self.context.session_manager.get_logger();
         let logger_guard = logger.lock().await;
@@ -126,7 +131,9 @@ impl ProxyServer {
             duration_secs,
             message,
         );
+
         drop(logger_guard);
+
         log::info!(
             "[SESSION EXIT] session_id={} user={} exit_point={}",
             session_id,
