@@ -12,7 +12,7 @@ use crate::session::logger::SharedLogger;
 use crate::session::logger::create_logger;
 use crate::terminal::state::{CmdInfo, TerminalState, WindowSize};
 
-pub type SessionId = String;
+pub(crate) type SessionId = String;
 
 pub struct SessionData {
     pub username: String,
@@ -22,13 +22,13 @@ pub struct SessionData {
     pub terminal_state: TerminalState,
 }
 
-pub struct SessionManager {
+pub(crate) struct SessionManager {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<SessionData>>>>>,
     logger: SharedLogger,
 }
 
 impl SessionManager {
-    pub fn new(log_path: String) -> Self {
+    pub(crate) fn new(log_path: String) -> Self {
         let logger = create_logger(&log_path);
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -36,7 +36,7 @@ impl SessionManager {
         }
     }
 
-    pub async fn create_session(
+    pub(crate) async fn create_session(
         &self,
         session_id: SessionId,
         username: String,
@@ -61,7 +61,7 @@ impl SessionManager {
         Ok(session_id)
     }
 
-    pub async fn get_session(&self, session_id: &str) -> Option<Arc<RwLock<SessionData>>> {
+    pub(crate) async fn get_session(&self, session_id: &str) -> Option<Arc<RwLock<SessionData>>> {
         let sessions = self.sessions.read().await;
         sessions.get(session_id).cloned()
     }
@@ -90,11 +90,11 @@ impl SessionManager {
             .context("No backend connection established")
     }
 
-    pub fn get_logger(&self) -> SharedLogger {
+    pub(crate) fn get_logger(&self) -> SharedLogger {
         self.logger.clone()
     }
 
-    pub async fn update_cwd(&self, session_id: &str, new_cwd: PathBuf) -> Result<()> {
+    pub(crate) async fn update_cwd(&self, session_id: &str, new_cwd: PathBuf) -> Result<()> {
         let session_lock = self
             .get_session(session_id)
             .await
@@ -106,7 +106,12 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn update_window_size(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
+    pub(crate) async fn update_window_size(
+        &self,
+        session_id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<()> {
         let session_lock = self
             .get_session(session_id)
             .await
@@ -122,7 +127,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn push_command(&self, session_id: &str, cmd: String) -> Result<()> {
+    pub(crate) async fn push_command(&self, session_id: &str, cmd: String) -> Result<()> {
         let session_lock = self
             .get_session(session_id)
             .await
@@ -135,7 +140,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn remove_session(&self, session_id: &str) -> Result<()> {
+    pub(crate) async fn remove_session(&self, session_id: &str) -> Result<()> {
         let mut sessions = self.sessions.write().await;
 
         if let Some(session_lock) = sessions.remove(session_id) {

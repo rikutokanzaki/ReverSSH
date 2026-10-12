@@ -7,26 +7,26 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub struct CommandLogEvent<'a> {
-    pub session_id: &'a str,
-    pub command_id: &'a str,
-    pub src_ip: &'a str,
-    pub src_port: u16,
-    pub username: &'a str,
-    pub command: &'a str,
-    pub cwd: &'a str,
-    pub input_timestamp: DateTime<Utc>,
-    pub response_timestamp: DateTime<Utc>,
-    pub response_latency_ms: i64,
-    pub prompt_returned: bool,
-    pub end_reason: &'a str,
-    pub backend_response_raw: Option<&'a str>,
-    pub backend_response_displayed: Option<&'a str>,
-    pub backend_response_error: Option<&'a str>,
-    pub success: bool,
-    pub dest_backend: Option<&'a str>,
-    pub dest_ip: Option<&'a str>,
-    pub dest_port: Option<u16>,
+pub(crate) struct CommandLogEvent<'a> {
+    pub(crate) session_id: &'a str,
+    pub(crate) command_id: &'a str,
+    pub(crate) src_ip: &'a str,
+    pub(crate) src_port: u16,
+    pub(crate) username: &'a str,
+    pub(crate) command: &'a str,
+    pub(crate) cwd: &'a str,
+    pub(crate) input_timestamp: DateTime<Utc>,
+    pub(crate) response_timestamp: DateTime<Utc>,
+    pub(crate) response_latency_ms: i64,
+    pub(crate) prompt_returned: bool,
+    pub(crate) end_reason: &'a str,
+    pub(crate) backend_response_raw: Option<&'a str>,
+    pub(crate) backend_response_displayed: Option<&'a str>,
+    pub(crate) backend_response_error: Option<&'a str>,
+    pub(crate) success: bool,
+    pub(crate) dest_backend: Option<&'a str>,
+    pub(crate) dest_ip: Option<&'a str>,
+    pub(crate) dest_port: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -90,12 +90,12 @@ struct SessionCloseLogEntry<'a> {
     protocol: &'a str,
 }
 
-pub struct SessionLogger {
+pub(crate) struct SessionLogger {
     log_path: String,
 }
 
 impl SessionLogger {
-    pub fn new(log_path: &str) -> Self {
+    fn new(log_path: &str) -> Self {
         if let Some(parent) = Path::new(log_path).parent()
             && let Err(e) = std::fs::create_dir_all(parent)
         {
@@ -107,7 +107,7 @@ impl SessionLogger {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn log_auth_event(
+    pub(crate) fn log_auth_event(
         &self,
         session_id: &str,
         src_ip: &str,
@@ -140,7 +140,7 @@ impl SessionLogger {
         }
     }
 
-    pub fn log_command_event(&self, event: &CommandLogEvent<'_>) {
+    pub(crate) fn log_command_event(&self, event: &CommandLogEvent<'_>) {
         let log_entry = CommandLogEntry {
             timestamp: event
                 .input_timestamp
@@ -178,7 +178,7 @@ impl SessionLogger {
         }
     }
 
-    pub fn log_session_close(
+    pub(crate) fn log_session_close(
         &self,
         session_id: &str,
         src_ip: &str,
@@ -217,8 +217,8 @@ impl SessionLogger {
     }
 }
 
-pub type SharedLogger = Arc<Mutex<SessionLogger>>;
+pub(crate) type SharedLogger = Arc<Mutex<SessionLogger>>;
 
-pub fn create_logger(log_path: &str) -> SharedLogger {
+pub(crate) fn create_logger(log_path: &str) -> SharedLogger {
     Arc::new(Mutex::new(SessionLogger::new(log_path)))
 }

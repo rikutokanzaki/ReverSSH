@@ -1,2 +1,2 @@
-pub mod logger;
-pub mod manager;
+pub(crate) mod logger;
+pub(crate) mod manager;

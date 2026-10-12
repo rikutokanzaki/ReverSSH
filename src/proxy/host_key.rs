@@ -5,7 +5,7 @@ use std::fs;
 
 use crate::config::{HostKeyMode, ServerConfig};
 
-pub fn load_or_generate_host_key(config: &ServerConfig) -> Result<PrivateKey> {
+pub(crate) fn load_or_generate_host_key(config: &ServerConfig) -> Result<PrivateKey> {
     if config.host_key_path.exists() {
         return Ok(load_secret_key(&config.host_key_path, None)?);
     }
