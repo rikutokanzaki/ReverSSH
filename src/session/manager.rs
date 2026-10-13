@@ -102,6 +102,7 @@ impl SessionManager {
 
         let mut session = session_lock.write().await;
         session.terminal_state.cwd = Some(new_cwd.clone());
+
         debug!("Updated CWD for session {} to {:?}", session_id, new_cwd);
         Ok(())
     }
@@ -145,6 +146,7 @@ impl SessionManager {
 
         if let Some(session_lock) = sessions.remove(session_id) {
             let session = session_lock.read().await;
+
             info!(
                 "Removed session {} (user: {}, channel: {:?})",
                 session_id, session.username, session.client_channel
