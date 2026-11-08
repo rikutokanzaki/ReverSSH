@@ -18,6 +18,8 @@ services:
     volumes:
       - ${REVERSSH_DATA_PATH}/reverssh:/var/log/reverssh
     restart: always
+    networks:
+      - honeynet
 
   ####################################
   ### backends
@@ -32,6 +34,9 @@ services:
       - /tmp/heralding:uid=2000,gid=2000
     restart: always
     read_only: true
+    networks:
+      - honeynet
+      - sandbox
 
   cowrie1:
     container_name: cowrie1
@@ -42,6 +47,9 @@ services:
       - PYTHONUNBUFFERED=1
       - COWRIE_TTYLOG_ENABLED=yes
     restart: always
+    networks:
+      - honeynet
+      - sandbox
 
   cowrie2:
     container_name: cowrie2
@@ -52,3 +60,12 @@ services:
       - PYTHONUNBUFFERED=1
       - COWRIE_TTYLOG_ENABLED=yes
     restart: always
+    networks:
+      - honeynet
+      - sandbox
+
+networks:
+  honeynet:
+    external: false
+  sandbox:
+    external: false
