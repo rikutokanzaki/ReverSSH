@@ -6,6 +6,14 @@ use unicode_width::UnicodeWidthChar;
 
 pub(crate) struct Renderer;
 
+pub(crate) struct LineRedrawRequest<'a> {
+    pub(crate) username: &'a str,
+    pub(crate) server_name: &'a str,
+    pub(crate) cwd: Option<&'a str>,
+    pub(crate) buffer: &'a str,
+    pub(crate) cursor: usize,
+}
+
 impl Default for Renderer {
     fn default() -> Self {
         Self::new()
@@ -40,26 +48,21 @@ impl Renderer {
         self.send_data(channel, session, prompt.as_bytes());
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn redraw_line(
         &self,
         channel: ChannelId,
         session: &mut Session,
-        username: &str,
-        server_name: &str,
-        cwd: Option<&str>,
-        buffer: &str,
-        cursor: usize,
+        request: LineRedrawRequest<'_>,
     ) {
-        let prompt = self.generate_prompt(username, server_name, cwd);
+        let prompt = self.generate_prompt(request.username, request.server_name, request.cwd);
 
         let mut out = String::new();
         out.push('\r');
         out.push_str("\x1b[2K");
         out.push_str(&prompt);
-        out.push_str(buffer);
+        out.push_str(request.buffer);
 
-        let tail_cols: usize = buffer[cursor..]
+        let tail_cols: usize = request.buffer[request.cursor..]
             .chars()
             .map(|c| c.width().unwrap_or(1))
             .sum();

@@ -29,6 +29,18 @@ pub(crate) struct CommandLogEvent<'a> {
     pub(crate) dest_port: Option<u16>,
 }
 
+pub(crate) struct AuthLogEvent<'a> {
+    pub(crate) session_id: &'a str,
+    pub(crate) src_ip: &'a str,
+    pub(crate) src_port: u16,
+    pub(crate) dest_backend: Option<&'a str>,
+    pub(crate) dest_ip: Option<&'a str>,
+    pub(crate) dest_port: Option<u16>,
+    pub(crate) username: &'a str,
+    pub(crate) password: &'a str,
+    pub(crate) success: bool,
+}
+
 #[derive(Serialize)]
 struct AuthLogEntry<'a> {
     timestamp: String,
@@ -106,33 +118,21 @@ impl SessionLogger {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn log_auth_event(
-        &self,
-        session_id: &str,
-        src_ip: &str,
-        src_port: u16,
-        dest_backend: Option<&str>,
-        dest_ip: Option<&str>,
-        dest_port: Option<u16>,
-        username: &str,
-        password: &str,
-        success: bool,
-    ) {
+    pub(crate) fn log_auth_event(&self, event: &AuthLogEvent<'_>) {
         let log_entry = AuthLogEntry {
             timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             event_type: "ReverSSH",
             eventid: "reverssh.login.attempt",
-            session_id,
-            src_ip,
-            src_port,
-            dest_ip,
-            dest_port,
-            dest_backend,
-            username,
-            password,
+            session_id: event.session_id,
+            src_ip: event.src_ip,
+            src_port: event.src_port,
+            dest_ip: event.dest_ip,
+            dest_port: event.dest_port,
+            dest_backend: event.dest_backend,
+            username: event.username,
+            password: event.password,
             protocol: "ssh",
-            success,
+            success: event.success,
         };
 
         if let Err(e) = self.write_log(&log_entry) {

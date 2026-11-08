@@ -9,7 +9,7 @@ use crate::config::AppConfig;
 use crate::proxy::authenticator::FileBasedAuthenticator;
 use crate::proxy::context::ProxyContext;
 use crate::proxy::motd::return_motd;
-use crate::proxy::server::ProxyServer;
+use crate::proxy::server::{ProxyServer, ProxyServerOptions};
 use crate::router::migration::Detector;
 use crate::session::manager::SessionManager;
 
@@ -70,10 +70,12 @@ impl server::Server for ProxyServerFactory {
     fn new_client(&mut self, peer_addr: Option<SocketAddr>) -> Self::Handler {
         ProxyServer::new(
             self.context.clone(),
-            peer_addr,
-            self.accept_any,
-            self.authenticator.clone(),
-            self.motd.clone(),
+            ProxyServerOptions {
+                peer_addr,
+                accept_any: self.accept_any,
+                authenticator: self.authenticator.clone(),
+                motd: self.motd.clone(),
+            },
         )
     }
 }
