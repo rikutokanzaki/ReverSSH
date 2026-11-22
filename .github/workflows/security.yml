@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - develop
+  schedule:
+    - cron: "0 0 * * *"
 
 permissions:
   contents: read
@@ -38,72 +40,45 @@ jobs:
           set +e
           cargo audit --json > audit-report.json
           audit_exit=$?
-          set -e
 
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
+          python3 .github/scripts/cargo_audit_report.py --report audit-report.json
+          report_exit=$?
 
-          with open("audit-report.json", encoding="utf-8") as file:
-              report = json.load(file)
-
-          fixable = []
-          unfixable = []
-          for finding in report.get("vulnerabilities", {}).get("list", []):
-              advisory = finding["advisory"]
-              patched = finding.get("versions", {}).get("patched", [])
-              target = f"{advisory['id']} ({advisory['package']})"
-              if patched:
-                  fixable.append((target, ", ".join(patched)))
-              else:
-                  unfixable.append(target)
-
-          warnings = report.get("warnings", {})
-          blocking_warnings = {
-              kind: entries
-              for kind, entries in warnings.items()
-              if kind in {"unsound", "yanked"} and entries
-          }
-
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as file:
-                  file.write("## Cargo audit\n\n")
-                  if unfixable:
-                      file.write("### Reported only (no patched release)\n")
-                      for finding in unfixable:
-                          file.write(f"- `{finding}`\n")
-                      file.write("\n")
-                  if fixable:
-                      file.write("### Must fix\n")
-                      for finding, patched in fixable:
-                          file.write(f"- `{finding}`; patched: `{patched}`\n")
-                      file.write("\n")
-
-          if fixable or blocking_warnings:
-              print("Fixable advisories found:")
-              for finding, patched in fixable:
-                  print(f"- {finding}; patched: {patched}")
-              for kind, entries in blocking_warnings.items():
-                  print(f"Blocking {kind} warnings found: {len(entries)}")
-              sys.exit(1)
-
-          print("No advisories with an available patched release were found.")
-          if unfixable:
-              print("Unfixable advisories were retained in audit-report.json.")
-          PY
-
-          # cargo-audit exits non-zero for reported advisories, including
-          # advisories without a patched release. The Python gate above makes
-          # that distinction explicitly; preserve other audit failures.
+          if [ "$report_exit" -ne 0 ]; then
+            exit "$report_exit"
+          fi
           if [ "$audit_exit" -ne 0 ] && [ ! -s audit-report.json ]; then
             exit "$audit_exit"
           fi
 
       - name: Upload cargo audit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cargo-audit-report
           path: audit-report.json
+
+  docker-image-audit:
+    name: Docker image audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.76.2
+          cache: true
+
+      - name: Audit Docker images
+        uses: ./.github/actions/docker-image-audit
+
+      - name: Upload Docker audit reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: docker-audit-report
+          path: docker-audit/

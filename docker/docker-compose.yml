@@ -12,7 +12,7 @@ services:
       - cowrie1
       - cowrie2
     ports:
-      - "22:22"
+      - "22:2222"
     env_file:
       - ../.env
     volumes:

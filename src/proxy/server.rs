@@ -88,7 +88,7 @@ impl server::Handler for ProxyServer {
     async fn auth_publickey_offered(
         &mut self,
         _user: &str,
-        _public_key: &russh::keys::PublicKey,
+        _public_key: server::PublicKeyOffer<'_>,
     ) -> Result<Auth, Self::Error> {
         Ok(Auth::Reject {
             proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
@@ -99,7 +99,7 @@ impl server::Handler for ProxyServer {
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        _public_key: &russh::keys::PublicKey,
+        _public_key: server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
         Ok(Auth::Reject {
             proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),

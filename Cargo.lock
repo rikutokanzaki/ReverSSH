@@ -155,7 +155,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-sys",
- "untrusted",
  "zeroize",
 ]
 
@@ -388,9 +387,9 @@ dependencies = [
 
 [[package]]
 name = "crypto-bigint"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c035cb64cba03dad2fb921f3e218785e8cf9a41790da5eb3a1400f62fa2be11"
+checksum = "914c195c4d7fbc5ed7f88d14cbf85914d5c664967658d43404b263913a477e82"
 dependencies = [
  "cpubits",
  "ctutils",
@@ -518,6 +517,7 @@ dependencies = [
  "const-oid",
  "crypto-common",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -771,27 +771,6 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
-]
-
-[[package]]
-name = "generic-array"
-version = "0.14.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
-dependencies = [
- "typenum",
- "version_check",
-]
-
-[[package]]
-name = "generic-array"
-version = "1.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "337d46834ee672ab3e48caca2cb0c78cc174fb12b3a68d0d88f99a0519a5e36e"
-dependencies = [
- "generic-array 0.14.9",
- "rustversion",
- "typenum",
 ]
 
 [[package]]
@@ -1279,9 +1258,9 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pkcs1"
-version = "0.8.0-rc.4"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "986d2e952779af96ea048f160fd9194e1751b4faea78bcf3ceb456efe008088e"
+checksum = "6250dd7321adbe93d12b750aee0ced159fd13e77f625edcdf1cb6f83cd99f650"
 dependencies = [
  "der",
  "spki",
@@ -1500,14 +1479,16 @@ dependencies = [
 
 [[package]]
 name = "rsa"
-version = "0.10.0-rc.18"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b2aa4ba0d89f73d1e332df05be0eeab8840351c36ca5654341dfdb57bb3caf"
+checksum = "23e77fd77e0dea28b3011fd62d15445b7de7959333b0276d930e03be0f755699"
 dependencies = [
  "const-oid",
  "crypto-bigint",
+ "crypto-common",
  "crypto-primes",
  "digest",
+ "hmac",
  "pkcs1",
  "pkcs8",
  "rand_core",
@@ -1519,9 +1500,9 @@ dependencies = [
 
 [[package]]
 name = "russh"
-version = "0.63.3"
+version = "0.65.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "036204edbd199552a5b3832f63c60dcdf395dc44c7f06b4af1c0e8139cc11bce"
+checksum = "569d8c45e20c123af2fc5ecb4803fde0a98572449ba4c24ed97741d7b02fedf7"
 dependencies = [
  "aes",
  "aws-lc-rs",
@@ -1544,7 +1525,6 @@ dependencies = [
  "enum_dispatch",
  "flate2",
  "futures",
- "generic-array 1.4.5",
  "getrandom",
  "ghash",
  "hex-literal",
@@ -1888,9 +1868,9 @@ dependencies = [
 
 [[package]]
 name = "ssh-key"
-version = "0.7.0-rc.11"
+version = "0.7.0-rc.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9a32fae177b74a22aa9c5b01bf7e68b33545be32d9e381e248058d2adc15ce3"
+checksum = "0701b552e6bd8f13a6e07bde25307c32d7daad80a79b65832d110c0416e7b638"
 dependencies = [
  "argon2",
  "bcrypt-pbkdf",
@@ -2078,12 +2058,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "untrusted"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
-
-[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2099,12 +2073,6 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "version_check"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wasi"

@@ -1,6 +1,6 @@
 [server]
 name = "svr04"
-listen_addr = "0.0.0.0:22"
+listen_addr = "0.0.0.0:2222"
 host_key_path = "/config/host_key"
 history_size = 1000
 ssh_version = "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3"
