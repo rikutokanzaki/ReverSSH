@@ -79,8 +79,17 @@ def scan_dockerfiles(report_directory: Path, ignore_file: Path | None) -> bool:
             "--output",
             str(report_directory / f"{dockerfile_name}.config.json"),
         ]
+        manifest.append(
+            {
+                "type": "config",
+                "dockerfile": str(dockerfile),
+                "report": str(report_directory / f"{dockerfile_name}.config.json"),
+            }
+        )
+
         if ignore_file and ignore_file.exists():
             config_arguments.extend(["--ignorefile", str(ignore_file)])
+
         config_arguments.append(str(dockerfile))
 
         if not run_trivy(config_arguments):

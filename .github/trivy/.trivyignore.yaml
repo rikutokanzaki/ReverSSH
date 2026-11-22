@@ -3,3 +3,7 @@ misconfigurations:
     paths:
       - tests/fixtures/backends/openssh/Dockerfile
     statement: This test fixture intentionally runs sshd as root to test root-login behavior.
+  - id: DS-0002
+    paths:
+      - tests/fixtures/backends/openssh/Dockerfile
+    statement: This test fixture intentionally runs sshd as root to test root-login behavior.

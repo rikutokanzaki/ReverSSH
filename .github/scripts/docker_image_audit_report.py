@@ -39,10 +39,14 @@ def collect_findings(
     manifest = load_manifest(report_directory)
 
     for report_path, source in manifest.items():
+        if source.get("type", "image") != "image":
+            continue
         path = Path(report_path)
+
         if not path.exists():
             LOGGER.warning("Trivy report listed in manifest is missing: %s", path)
             continue
+
         report = json.loads(path.read_text(encoding="utf-8"))
         source_label = (
             f"{source.get('dockerfile', path)}"
@@ -68,8 +72,18 @@ def collect_findings(
 
     for path in report_directory.glob("*.config.json"):
         report = json.loads(path.read_text(encoding="utf-8"))
+        source = manifest.get(str(path), {})
+        ignored_ids = set()
+
+        if source.get("dockerfile") == "tests/fixtures/backends/openssh/Dockerfile":
+            ignored_ids.update({"DS-0002", "AVD-DS-0002"})
+
         for result in report.get("Results", []):
-            config_findings.extend(result.get("Misconfigurations") or [])
+            config_findings.extend(
+                finding
+                for finding in result.get("Misconfigurations") or []
+                if finding.get("ID") not in ignored_ids
+            )
 
     return (
         aggregate(runtime_fixable),
@@ -84,6 +98,7 @@ def write_group(file, title: str, findings: list[tuple], fixed: bool) -> None:
     if not findings:
         return
     file.write(f"### {title}\n")
+
     for vuln_id, package, installed, version, sources in findings:
         transition = f" -> {version}" if fixed else ""
         file.write(f"- `{vuln_id}` in `{package}` ({installed}{transition})\n")
@@ -101,6 +116,7 @@ def write_summary(
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
+
     with open(summary_path, "a", encoding="utf-8") as file:
         file.write("## Docker image audit\n\n")
         file.write(
@@ -163,6 +179,7 @@ def main() -> int:
 
     if runtime_fixable:
         LOGGER.error("Fixable HIGH/CRITICAL runtime image vulnerabilities found:")
+
         for vuln_id, package, installed, fixed, sources in runtime_fixable:
             LOGGER.error(
                 "%s %s: %s -> %s (%s)",
@@ -177,6 +194,7 @@ def main() -> int:
     LOGGER.info(
         "No HIGH/CRITICAL runtime image vulnerabilities with a known fix were found."
     )
+
     if runtime_unfixable or builder_fixable or builder_unfixable:
         LOGGER.info(
             "Non-blocking findings retained: runtime-unfixed=%s, builder-fixable=%s, builder-unfixed=%s.",
@@ -184,6 +202,7 @@ def main() -> int:
             len(builder_fixable),
             len(builder_unfixable),
         )
+
     return 0
 
 
