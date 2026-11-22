@@ -1,5 +1,5 @@
 name: Docker image audit
-description: Scan tracked Dockerfiles and their FROM images with Trivy
+description: Build tracked Dockerfiles and scan their base and final images with Trivy
 
 inputs:
   report-directory:

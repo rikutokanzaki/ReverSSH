@@ -45,6 +45,11 @@ def image_report_name(image: str) -> str:
     return re.sub(r"[/:@.]", "_", image)
 
 
+def audit_image_name(dockerfile: Path) -> str:
+    name = re.sub(r"[^a-zA-Z0-9_.-]", "-", str(dockerfile).replace("\\", "-"))
+    return f"reverssh-security-audit-{name.lower()}:local"
+
+
 def run_trivy(arguments: list[str]) -> bool:
     result = subprocess.run(["trivy", *arguments], check=False)
 
@@ -52,6 +57,26 @@ def run_trivy(arguments: list[str]) -> bool:
         LOGGER.error("Trivy failed with exit code %s: %s", result.returncode, arguments)
         return False
 
+    return True
+
+
+def build_dockerfile(dockerfile: Path, image: str) -> bool:
+    result = subprocess.run(
+        [
+            "docker",
+            "build",
+            "--pull",
+            "--file",
+            str(dockerfile),
+            "--tag",
+            image,
+            ".",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        LOGGER.error("Docker build failed with exit code %s: %s", result.returncode, dockerfile)
+        return False
     return True
 
 
@@ -87,6 +112,8 @@ def scan_dockerfiles(report_directory: Path) -> bool:
                     "image": image,
                     "stage": stage_name,
                     "is_builder": is_builder,
+                    "scope": "base-image",
+                    "blocking": False,
                     "report": str(image_report),
                 }
             )
@@ -103,6 +130,35 @@ def scan_dockerfiles(report_directory: Path) -> bool:
                 ]
             ):
                 scan_failed = True
+
+        built_image = audit_image_name(dockerfile)
+        built_report = report_directory / f"{dockerfile_name}.final.image.json"
+        manifest.append(
+            {
+                "dockerfile": str(dockerfile),
+                "image": built_image,
+                "stage": "final",
+                "is_builder": False,
+                "scope": "final-image",
+                "blocking": True,
+                "report": str(built_report),
+            }
+        )
+        if not build_dockerfile(dockerfile, built_image):
+            scan_failed = True
+        elif not run_trivy(
+            [
+                "image",
+                "--severity",
+                "HIGH,CRITICAL",
+                "--format",
+                "json",
+                "--output",
+                str(built_report),
+                built_image,
+            ]
+        ):
+            scan_failed = True
     (report_directory / "scan-manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )

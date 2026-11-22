@@ -43,10 +43,11 @@ def collect_findings(
         source = manifest.get(str(path), {})
         source_label = (
             f"{source.get('dockerfile', path)}"
-            f" [{source.get('stage', 'unknown')}]"
+            f" [{source.get('scope', source.get('stage', 'unknown'))}]"
+            f"/{source.get('stage', 'unknown')}"
             f" ({source.get('image', 'unknown')})"
         )
-        is_builder = source.get("is_builder", False)
+        blocking = source.get("blocking", not source.get("is_builder", False))
 
         for result in report.get("Results", []):
             for finding in result.get("Vulnerabilities") or []:
@@ -58,9 +59,9 @@ def collect_findings(
                     source_label,
                 )
                 if item[3]:
-                    (builder_fixable if is_builder else runtime_fixable).append(item)
+                    (runtime_fixable if blocking else builder_fixable).append(item)
                 else:
-                    (builder_unfixable if is_builder else runtime_unfixable).append(
+                    (runtime_unfixable if blocking else builder_unfixable).append(
                         item
                     )
 
@@ -101,7 +102,9 @@ def write_summary(
         return
     with open(summary_path, "a", encoding="utf-8") as file:
         file.write("## Docker image audit\n\n")
-        file.write("Trivy scans every `FROM` image in tracked Dockerfiles.\n\n")
+        file.write(
+            "Trivy scans base images and the final image built from every tracked Dockerfile.\n\n"
+        )
         write_group(
             file,
             "Fixable HIGH/CRITICAL vulnerabilities (CI gate)",

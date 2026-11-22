@@ -24,8 +24,14 @@ WORKDIR /app
 COPY --from=builder /build/target/release/reverssh /app/
 COPY config /config
 
-RUN mkdir -p /app/logs /certs /config/authorized_keys && \
-  chmod +x /app/reverssh
+RUN groupadd --system --gid 10001 reverssh && \
+  useradd --system --uid 10001 --gid reverssh --create-home --home-dir /home/reverssh \
+    --shell /usr/sbin/nologin reverssh && \
+  mkdir -p /app/logs /certs /config/authorized_keys /var/log/reverssh && \
+  chmod +x /app/reverssh && \
+  chown -R reverssh:reverssh /app /certs /config /var/log/reverssh /home/reverssh
+
+USER reverssh:reverssh
 
 EXPOSE 22
 
