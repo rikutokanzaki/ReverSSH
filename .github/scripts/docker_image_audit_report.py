@@ -61,9 +61,7 @@ def collect_findings(
                 if item[3]:
                     (runtime_fixable if blocking else builder_fixable).append(item)
                 else:
-                    (runtime_unfixable if blocking else builder_unfixable).append(
-                        item
-                    )
+                    (runtime_unfixable if blocking else builder_unfixable).append(item)
 
     for path in report_directory.glob("*.config.json"):
         report = json.loads(path.read_text(encoding="utf-8"))

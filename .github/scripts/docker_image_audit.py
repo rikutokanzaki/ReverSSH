@@ -75,7 +75,9 @@ def build_dockerfile(dockerfile: Path, image: str) -> bool:
         check=False,
     )
     if result.returncode != 0:
-        LOGGER.error("Docker build failed with exit code %s: %s", result.returncode, dockerfile)
+        LOGGER.error(
+            "Docker build failed with exit code %s: %s", result.returncode, dockerfile
+        )
         return False
     return True
 
@@ -144,9 +146,7 @@ def scan_dockerfiles(report_directory: Path) -> bool:
                 "report": str(built_report),
             }
         )
-        if not build_dockerfile(dockerfile, built_image):
-            scan_failed = True
-        elif not run_trivy(
+        if not build_dockerfile(dockerfile, built_image) or not run_trivy(
             [
                 "image",
                 "--severity",
