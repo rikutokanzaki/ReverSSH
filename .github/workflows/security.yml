@@ -53,7 +53,7 @@ jobs:
 
       - name: Upload cargo audit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cargo-audit-report
           path: audit-report.json
@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload Docker audit reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docker-audit-report
           path: docker-audit/
