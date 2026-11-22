@@ -1,4 +1,4 @@
-FROM rust:slim
+FROM rust:1.100-slim-bookworm
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./

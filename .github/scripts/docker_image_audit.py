@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 import subprocess
 from pathlib import Path
 
-FROM_PATTERN = re.compile(r"^\s*FROM\s+([^\s]+)", re.MULTILINE)
+FROM_PATTERN = re.compile(
+    r"^\s*FROM\s+(?:--platform=[^\s]+\s+)?([^\s]+)"
+    r"(?:\s+AS\s+([^\s]+))?",
+    re.IGNORECASE | re.MULTILINE,
+)
 LOGGER = logging.getLogger("docker-image-audit")
 
 
@@ -21,9 +26,15 @@ def tracked_dockerfiles() -> list[Path]:
     return [Path(path) for path in result.stdout.splitlines() if path]
 
 
-def docker_images(dockerfile: Path) -> list[str]:
+def docker_images(dockerfile: Path) -> list[tuple[str, str, bool]]:
     content = dockerfile.read_text(encoding="utf-8")
-    return FROM_PATTERN.findall(content)
+    stages = FROM_PATTERN.findall(content)
+    last_stage = len(stages) - 1
+
+    return [
+        (image, stage_name or f"stage-{index}", index < last_stage)
+        for index, (image, stage_name) in enumerate(stages)
+    ]
 
 
 def report_name(dockerfile: Path) -> str:
@@ -46,6 +57,7 @@ def run_trivy(arguments: list[str]) -> bool:
 
 def scan_dockerfiles(report_directory: Path) -> bool:
     scan_failed = False
+    manifest = []
 
     for dockerfile in tracked_dockerfiles():
         dockerfile_name = report_name(dockerfile)
@@ -65,7 +77,19 @@ def scan_dockerfiles(report_directory: Path) -> bool:
         ):
             scan_failed = True
 
-        for image in docker_images(dockerfile):
+        for image, stage_name, is_builder in docker_images(dockerfile):
+            image_report = report_directory / (
+                f"{dockerfile_name}.{image_report_name(image)}.stage-{stage_name}.image.json"
+            )
+            manifest.append(
+                {
+                    "dockerfile": str(dockerfile),
+                    "image": image,
+                    "stage": stage_name,
+                    "is_builder": is_builder,
+                    "report": str(image_report),
+                }
+            )
             if not run_trivy(
                 [
                     "image",
@@ -74,14 +98,14 @@ def scan_dockerfiles(report_directory: Path) -> bool:
                     "--format",
                     "json",
                     "--output",
-                    str(
-                        report_directory
-                        / f"{dockerfile_name}.{image_report_name(image)}.image.json"
-                    ),
+                    str(image_report),
                     image,
                 ]
             ):
                 scan_failed = True
+    (report_directory / "scan-manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
     return scan_failed
 
 

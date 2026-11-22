@@ -1,4 +1,4 @@
-FROM rust:slim AS builder
+FROM rust:1.100-slim-bookworm AS builder
 
 WORKDIR /build
 
