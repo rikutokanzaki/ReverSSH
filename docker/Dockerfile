@@ -33,6 +33,6 @@ RUN groupadd --system --gid 10001 reverssh && \
 
 USER reverssh:reverssh
 
-EXPOSE 22
+EXPOSE 2222
 
 CMD ["/app/reverssh"]

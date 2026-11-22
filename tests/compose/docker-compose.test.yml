@@ -4,8 +4,6 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile
-    cap_add:
-      - NET_BIND_SERVICE
     depends_on:
       backend:
         condition: service_healthy
@@ -16,13 +14,13 @@ services:
       heralding:
         condition: service_started
     ports:
-      - "2222:22"
+      - "2222:2222"
     volumes:
       - ../fixtures/proxy/default.toml:/config/default.toml:ro
       - ../fixtures/proxy/routing.toml:/config/routing.toml:ro
       - ../fixtures/proxy/user.txt:/config/user.txt:ro
     healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/22'"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/2222'"]
       interval: 2s
       timeout: 2s
       retries: 30

@@ -7,14 +7,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    cap_add:
-      - NET_BIND_SERVICE
     depends_on:
       - heralding
       - cowrie1
       - cowrie2
     ports:
-      - "22:22"
+      - "22:2222"
     env_file:
       - ../.env
     volumes:
