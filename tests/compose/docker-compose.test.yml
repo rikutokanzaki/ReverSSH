@@ -76,6 +76,6 @@ services:
         condition: service_healthy
     environment:
       SSH_HOST: reverssh
-      SSH_PORT: "22"
+      SSH_PORT: "2222"
       SSH_USER: root
       SSH_PASSWORD: test-password
