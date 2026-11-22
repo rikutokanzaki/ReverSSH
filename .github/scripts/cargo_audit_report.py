@@ -9,7 +9,11 @@ from pathlib import Path
 LOGGER = logging.getLogger("cargo-audit-report")
 
 
-def write_summary(fixable: list[tuple[str, str]], unfixable: list[str]) -> None:
+def write_summary(
+    fixable: list[tuple[str, str]],
+    unfixable: list[str],
+    blocking_warnings: dict,
+) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
 
     if not summary_path:
@@ -29,6 +33,9 @@ def write_summary(fixable: list[tuple[str, str]], unfixable: list[str]) -> None:
                 f"- `{finding}`; patched: `{patched}`\n" for finding, patched in fixable
             )
             file.write("\n")
+
+        if not fixable and not unfixable and not blocking_warnings:
+            file.write("No items currently require remediation.\n")
 
 
 def main() -> int:
@@ -59,7 +66,7 @@ def main() -> int:
         for kind, entries in warnings.items()
         if kind in {"unsound", "yanked"} and entries
     }
-    write_summary(fixable, unfixable)
+    write_summary(fixable, unfixable, blocking_warnings)
 
     if fixable or blocking_warnings:
         LOGGER.error("Fixable advisories found:")

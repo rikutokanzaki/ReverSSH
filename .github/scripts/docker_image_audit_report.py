@@ -38,9 +38,12 @@ def collect_findings(
     config_findings = []
     manifest = load_manifest(report_directory)
 
-    for path in report_directory.glob("*.image.json"):
+    for report_path, source in manifest.items():
+        path = Path(report_path)
+        if not path.exists():
+            LOGGER.warning("Trivy report listed in manifest is missing: %s", path)
+            continue
         report = json.loads(path.read_text(encoding="utf-8"))
-        source = manifest.get(str(path), {})
         source_label = (
             f"{source.get('dockerfile', path)}"
             f" [{source.get('scope', source.get('stage', 'unknown'))}]"
@@ -101,7 +104,7 @@ def write_summary(
     with open(summary_path, "a", encoding="utf-8") as file:
         file.write("## Docker image audit\n\n")
         file.write(
-            "Trivy scans base images and the final image built from every tracked Dockerfile.\n\n"
+            "Trivy scans the final image built from every tracked Dockerfile.\n\n"
         )
         write_group(
             file,

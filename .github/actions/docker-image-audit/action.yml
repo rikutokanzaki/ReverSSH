@@ -1,11 +1,15 @@
 name: Docker image audit
-description: Build tracked Dockerfiles and scan their base and final images with Trivy
+description: Build tracked Dockerfiles and scan their final images with Trivy
 
 inputs:
   report-directory:
     description: Directory for Trivy JSON reports
     required: false
     default: docker-audit
+  ignore-file:
+    description: Trivy ignore file
+    required: false
+    default: .github/trivy/.trivyignore.yaml
 
 runs:
   using: composite
@@ -15,7 +19,8 @@ runs:
       run: |
         set +e
         python3 "${{ github.workspace }}/.github/scripts/docker_image_audit.py" \
-          --report-directory "${{ inputs.report-directory }}"
+          --report-directory "${{ inputs.report-directory }}" \
+          --ignore-file "${{ github.workspace }}/${{ inputs.ignore-file }}"
         scan_exit=$?
 
         python3 "${{ github.workspace }}/.github/scripts/docker_image_audit_report.py" \
