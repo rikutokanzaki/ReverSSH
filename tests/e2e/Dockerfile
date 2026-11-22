@@ -6,6 +6,7 @@ COPY src ./src
 COPY tests/e2e.rs ./tests/e2e.rs
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
