@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - develop
+  schedule:
+    - cron: "0 0 * * *"
 
 permissions:
   contents: read
@@ -57,6 +59,26 @@ jobs:
           path: audit-report.json
 
   docker-image-audit:
-    uses: ./.github/workflows/docker-image-audit.yml
-    permissions:
-      contents: read
+    name: Docker image audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.76.2
+          cache: true
+
+      - name: Audit Docker images
+        uses: ./.github/actions/docker-image-audit
+
+      - name: Upload Docker audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-audit-report
+          path: docker-audit/
