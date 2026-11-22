@@ -1,0 +1,27 @@
+name: Docker image audit
+description: Scan tracked Dockerfiles and their FROM images with Trivy
+
+inputs:
+  report-directory:
+    description: Directory for Trivy JSON reports
+    required: false
+    default: docker-audit
+
+runs:
+  using: composite
+  steps:
+    - name: Scan Docker images
+      shell: bash
+      run: |
+        set +e
+        python3 "${{ github.workspace }}/.github/scripts/docker_image_audit.py" \
+          --report-directory "${{ inputs.report-directory }}"
+        scan_exit=$?
+
+        python3 "${{ github.workspace }}/.github/scripts/docker_image_audit_report.py" \
+          --report-directory "${{ inputs.report-directory }}"
+        report_exit=$?
+
+        if [ "$scan_exit" -ne 0 ] || [ "$report_exit" -ne 0 ]; then
+          exit 1
+        fi
