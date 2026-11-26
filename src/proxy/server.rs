@@ -13,10 +13,11 @@ use uuid::Uuid;
 use crate::client::handler::{Client, CommandEndReason, CommandExecutionResult};
 use crate::proxy::authenticator::{Authentication, FileBasedAuthenticator};
 use crate::proxy::context::ProxyContext;
+use crate::session::logger::AuthLogEvent;
 use crate::session::manager::SessionId;
 use crate::terminal::parser::TerminalOutputParser;
 use crate::terminal::reader::{InputEvent, LineReader};
-use crate::terminal::renderer::Renderer;
+use crate::terminal::renderer::{LineRedrawRequest, Renderer};
 use crate::terminal::state::CmdInfo;
 
 pub struct ProxyServer {
@@ -45,23 +46,23 @@ pub(super) enum CommandExecutionMode {
     Exec,
 }
 
+pub(crate) struct ProxyServerOptions {
+    pub(crate) peer_addr: Option<SocketAddr>,
+    pub(crate) accept_any: bool,
+    pub(crate) authenticator: Option<Arc<FileBasedAuthenticator>>,
+    pub(crate) motd: String,
+}
+
 impl ProxyServer {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        context: Arc<ProxyContext>,
-        peer_addr: Option<SocketAddr>,
-        accept_any: bool,
-        authenticator: Option<Arc<FileBasedAuthenticator>>,
-        motd: String,
-    ) -> Self {
+    pub fn new(context: Arc<ProxyContext>, options: ProxyServerOptions) -> Self {
         let renderer = Renderer::new();
 
         Self {
             context: context.clone(),
-            peer_addr,
-            accept_any,
-            authenticator,
-            motd,
+            peer_addr: options.peer_addr,
+            accept_any: options.accept_any,
+            authenticator: options.authenticator,
+            motd: options.motd,
             session_id: Some(Uuid::new_v4().to_string()),
             session_created: false,
             username: None,
@@ -89,7 +90,7 @@ impl server::Handler for ProxyServer {
     async fn auth_publickey_offered(
         &mut self,
         _user: &str,
-        _public_key: &russh::keys::PublicKey,
+        _public_key: server::PublicKeyOffer<'_>,
     ) -> Result<Auth, Self::Error> {
         Ok(Auth::Reject {
             proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
@@ -100,7 +101,7 @@ impl server::Handler for ProxyServer {
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        _public_key: &russh::keys::PublicKey,
+        _public_key: server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
         Ok(Auth::Reject {
             proceed_with_methods: Some(MethodSet::from(&[MethodKind::Password][..])),
@@ -137,17 +138,17 @@ impl server::Handler for ProxyServer {
 
             let logger = self.context.session_manager.get_logger();
             let logger_guard = logger.lock().await;
-            logger_guard.log_auth_event(
+            logger_guard.log_auth_event(&AuthLogEvent {
                 session_id,
-                &src_ip,
+                src_ip: &src_ip,
                 src_port,
-                authenticated_backend.as_deref(),
-                destination.as_ref().map(|config| config.hostname.as_str()),
-                destination.as_ref().map(|config| config.port),
-                user,
+                dest_backend: authenticated_backend.as_deref(),
+                dest_ip: destination.as_ref().map(|config| config.hostname.as_str()),
+                dest_port: destination.as_ref().map(|config| config.port),
+                username: user,
                 password,
-                true,
-            );
+                success: true,
+            });
             drop(logger_guard);
 
             info!("[AUTH SUCCESS] user={} password={}", user, password);
@@ -161,17 +162,17 @@ impl server::Handler for ProxyServer {
             .await;
         let logger = self.context.session_manager.get_logger();
         let logger_guard = logger.lock().await;
-        logger_guard.log_auth_event(
+        logger_guard.log_auth_event(&AuthLogEvent {
             session_id,
-            &src_ip,
+            src_ip: &src_ip,
             src_port,
-            destination.as_ref().map(|config| config.name.as_str()),
-            destination.as_ref().map(|config| config.hostname.as_str()),
-            destination.as_ref().map(|config| config.port),
-            user,
+            dest_backend: destination.as_ref().map(|config| config.name.as_str()),
+            dest_ip: destination.as_ref().map(|config| config.hostname.as_str()),
+            dest_port: destination.as_ref().map(|config| config.port),
+            username: user,
             password,
-            false,
-        );
+            success: false,
+        });
         drop(logger_guard);
 
         if let Err(error) = self
@@ -394,11 +395,13 @@ impl server::Handler for ProxyServer {
                 self.renderer.redraw_line(
                     channel,
                     session,
-                    username,
-                    &self.context.config.server.name,
-                    cwd.as_deref(),
-                    buf,
-                    cursor,
+                    LineRedrawRequest {
+                        username,
+                        server_name: &self.context.config.server.name,
+                        cwd: cwd.as_deref(),
+                        buffer: buf,
+                        cursor,
+                    },
                 );
             }
         }
@@ -634,18 +637,18 @@ impl ProxyServer {
                 self.send_command_error(channel, session, mode, "Failed to connect to backend\r\n")
                     .await;
 
-                self.log_command_execution(
+                self.log_command_execution(crate::proxy::audit::CommandExecutionAudit {
                     session_id,
                     command,
-                    None,
-                    None,
-                    Some(error_message.as_str()),
-                    None,
-                    Utc::now(),
-                    0,
-                    false,
-                    &CommandEndReason::ExitStatus,
-                )
+                    backend_response_raw: None,
+                    backend_response_displayed: None,
+                    backend_response_error: Some(error_message.as_str()),
+                    cwd_override: None,
+                    response_timestamp: Utc::now(),
+                    response_latency_ms: 0,
+                    prompt_returned: false,
+                    end_reason: &CommandEndReason::ExitStatus,
+                })
                 .await;
 
                 if matches!(mode, CommandExecutionMode::Exec) {
@@ -673,18 +676,18 @@ impl ProxyServer {
                 self.send_command_error(channel, session, mode, "Command execution failed\r\n")
                     .await;
 
-                self.log_command_execution(
+                self.log_command_execution(crate::proxy::audit::CommandExecutionAudit {
                     session_id,
                     command,
-                    None,
-                    None,
-                    Some(error_message.as_str()),
-                    None,
-                    Utc::now(),
-                    0,
-                    false,
-                    &CommandEndReason::ExitStatus,
-                )
+                    backend_response_raw: None,
+                    backend_response_displayed: None,
+                    backend_response_error: Some(error_message.as_str()),
+                    cwd_override: None,
+                    response_timestamp: Utc::now(),
+                    response_latency_ms: 0,
+                    prompt_returned: false,
+                    end_reason: &CommandEndReason::ExitStatus,
+                })
                 .await;
 
                 if matches!(mode, CommandExecutionMode::Exec) {
@@ -747,18 +750,18 @@ impl ProxyServer {
             .send_data(channel, session, &result.displayed_output);
         let response_cwd = result.cwd.clone();
 
-        self.log_command_execution(
+        self.log_command_execution(crate::proxy::audit::CommandExecutionAudit {
             session_id,
             command,
-            Some(&result.raw_output),
-            Some(&result.displayed_output),
-            None,
-            response_cwd.as_deref(),
-            result.first_response_timestamp,
-            result.first_response_latency_ms,
-            result.prompt_returned,
-            &result.end_reason,
-        )
+            backend_response_raw: Some(&result.raw_output),
+            backend_response_displayed: Some(&result.displayed_output),
+            backend_response_error: None,
+            cwd_override: response_cwd.as_deref(),
+            response_timestamp: result.first_response_timestamp,
+            response_latency_ms: result.first_response_latency_ms,
+            prompt_returned: result.prompt_returned,
+            end_reason: &result.end_reason,
+        })
         .await;
 
         let cwd_str = response_cwd.as_deref().unwrap_or("/");
@@ -915,11 +918,13 @@ impl ProxyServer {
                 self.renderer.redraw_line(
                     channel,
                     session,
-                    username,
-                    &self.context.config.server.name,
-                    cwd.as_deref(),
-                    buf,
-                    cursor,
+                    LineRedrawRequest {
+                        username,
+                        server_name: &self.context.config.server.name,
+                        cwd: cwd.as_deref(),
+                        buffer: buf,
+                        cursor,
+                    },
                 );
             }
             Err(e) => {
