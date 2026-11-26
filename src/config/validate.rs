@@ -143,6 +143,14 @@ fn validate_profiles(config: &AppConfig) -> Result<()> {
             );
         }
 
+        if !backend_names.contains(profile.credential_backend.as_str()) {
+            bail!(
+                "routing profile '{}' targets unknown credential backend '{}'",
+                profile.name,
+                profile.credential_backend
+            );
+        }
+
         for rule in &profile.command {
             if !backend_names.contains(rule.backend.as_str()) {
                 bail!(

@@ -21,7 +21,7 @@ keywords = ["whoami"]
 [schedule]
 enabled = false
 timezone = "Asia/Tokyo"
-interval_seconds = 900
+interval_seconds = 1020
 sequence = [
     "heralding-cowrie",
     "heralding-beelzebub",
@@ -31,14 +31,17 @@ sequence = [
 [[profiles]]
 name = "heralding-cowrie"
 default_backend = "cowrie1"
+credential_backend = "heralding"
 
 [[profiles]]
 name = "heralding-beelzebub"
 default_backend = "cowrie2"
+credential_backend = "heralding"
 
 [[profiles]]
 name = "heralding-cowrie-beelzebub"
 default_backend = "cowrie1"
+credential_backend = "heralding"
 
 [[profiles.command]]
 name = "beelzebub-switch"

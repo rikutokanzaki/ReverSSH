@@ -80,6 +80,7 @@ pub struct ScheduleConfig {
 pub struct RoutingProfileConfig {
     pub name: String,
     pub default_backend: String,
+    pub credential_backend: String,
 
     #[serde(default)]
     pub command: Vec<CommandRuleConfig>,

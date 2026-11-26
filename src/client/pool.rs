@@ -96,6 +96,24 @@ impl ClientPool {
         connection.close().await
     }
 
+    pub(crate) async fn observe_failed_auth_on(
+        &self,
+        backend_name: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<()> {
+        let config = {
+            let backends = self.backends.read().await;
+            backends
+                .get(backend_name)
+                .cloned()
+                .context("Credential backend not found")?
+        };
+
+        let connection = Client::connect(config, username, password).await?;
+        connection.close().await
+    }
+
     pub(crate) async fn credential_backend_for_auth(
         &self,
         username: &str,

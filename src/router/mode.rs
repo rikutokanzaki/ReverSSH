@@ -73,6 +73,12 @@ impl ModeResolver {
             .map(|profile| profile.default_backend.as_str())
     }
 
+    pub(crate) fn credential_backend(&self, profile_name: &str) -> Option<&str> {
+        self.profiles
+            .get(profile_name)
+            .map(|profile| profile.credential_backend.as_str())
+    }
+
     pub(crate) fn detect(
         &self,
         profile_name: &str,
@@ -133,6 +139,7 @@ mod tests {
         RoutingProfileConfig {
             name: name.to_string(),
             default_backend: backend.to_string(),
+            credential_backend: "heralding".to_string(),
             command: Vec::new(),
         }
     }
@@ -194,5 +201,44 @@ mod tests {
             resolver.profile_name_at(15 * 60 * 60, schedule),
             Some("day-b".to_string())
         );
+    }
+
+    #[test]
+    fn profiles_separate_credential_and_interaction_backends() {
+        let config = RoutingConfig {
+            schedule: Some(ScheduleConfig {
+                enabled: true,
+                timezone: "UTC".to_string(),
+                interval_seconds: 10,
+                sequence: vec![
+                    "heralding-cowrie".to_string(),
+                    "heralding-beelzebub".to_string(),
+                    "heralding-cowrie-beelzebub".to_string(),
+                ],
+            }),
+            profiles: vec![
+                profile("heralding-cowrie", "cowrie"),
+                profile("heralding-beelzebub", "beelzebub"),
+                profile("heralding-cowrie-beelzebub", "cowrie"),
+            ],
+            ..RoutingConfig::default()
+        };
+        let resolver = ModeResolver::new(&config).expect("resolver should build");
+        let schedule = config.schedule.as_ref().unwrap();
+
+        for (slot, interaction_backend) in ["cowrie", "beelzebub", "cowrie"].into_iter().enumerate()
+        {
+            let profile_name = resolver
+                .profile_name_at(slot as i64 * 10, schedule)
+                .expect("profile should resolve");
+            assert_eq!(
+                resolver.default_backend(&profile_name),
+                Some(interaction_backend)
+            );
+            assert_eq!(
+                resolver.credential_backend(&profile_name),
+                Some("heralding")
+            );
+        }
     }
 }

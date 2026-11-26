@@ -124,11 +124,24 @@ impl server::Handler for ProxyServer {
         if is_allowed {
             self.username = Some(user.to_string());
             self.password = Some(password.to_string());
-            let authenticated_backend = self
-                .context
-                .client_pool
-                .interaction_backend_for_auth(user, password)
-                .await;
+            let scheduled_backend =
+                self.context
+                    .mode_resolver
+                    .current_profile_name()
+                    .and_then(|profile| {
+                        let backend = self.context.mode_resolver.default_backend(&profile)?;
+                        self.session_profile = Some(profile);
+                        Some(backend.to_string())
+                    });
+            let authenticated_backend = match scheduled_backend {
+                Some(backend) => Some(backend),
+                None => {
+                    self.context
+                        .client_pool
+                        .interaction_backend_for_auth(user, password)
+                        .await
+                }
+            };
             self.authenticated_backend = authenticated_backend.clone();
 
             let destination = match authenticated_backend.as_deref() {
@@ -155,11 +168,25 @@ impl server::Handler for ProxyServer {
             return Ok(Auth::Accept);
         }
 
-        let destination = self
+        let scheduled_credential_backend = self
             .context
-            .client_pool
-            .credential_backend_for_auth(user, password)
-            .await;
+            .mode_resolver
+            .current_profile_name()
+            .and_then(|profile| {
+                self.context
+                    .mode_resolver
+                    .credential_backend(&profile)
+                    .map(str::to_owned)
+            });
+        let destination = match scheduled_credential_backend.as_deref() {
+            Some(name) => self.context.client_pool.get_backend_config(name).await,
+            None => {
+                self.context
+                    .client_pool
+                    .credential_backend_for_auth(user, password)
+                    .await
+            }
+        };
         let logger = self.context.session_manager.get_logger();
         let logger_guard = logger.lock().await;
         logger_guard.log_auth_event(&AuthLogEvent {
@@ -175,12 +202,21 @@ impl server::Handler for ProxyServer {
         });
         drop(logger_guard);
 
-        if let Err(error) = self
-            .context
-            .client_pool
-            .observe_failed_auth(user, password)
-            .await
-        {
+        let observe_result = match scheduled_credential_backend.as_deref() {
+            Some(name) => {
+                self.context
+                    .client_pool
+                    .observe_failed_auth_on(name, user, password)
+                    .await
+            }
+            None => {
+                self.context
+                    .client_pool
+                    .observe_failed_auth(user, password)
+                    .await
+            }
+        };
+        if let Err(error) = observe_result {
             warn!(
                 "Failed to observe rejected authentication for user {}: {:?}",
                 user, error
@@ -536,15 +572,22 @@ impl ProxyServer {
             return Ok(backend);
         }
 
-        let scheduled_backend =
-            self.context
+        let scheduled_backend = match self.session_profile.as_deref() {
+            Some(profile) => self
+                .context
+                .mode_resolver
+                .default_backend(profile)
+                .map(str::to_owned),
+            None => self
+                .context
                 .mode_resolver
                 .current_profile_name()
                 .and_then(|profile| {
                     let backend = self.context.mode_resolver.default_backend(&profile)?;
                     self.session_profile = Some(profile);
                     Some(backend.to_string())
-                });
+                }),
+        };
         let preferred_backend = self.authenticated_backend.take().or(scheduled_backend);
         let (backend, initial_cwd) = self
             .context

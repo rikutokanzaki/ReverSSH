@@ -117,6 +117,8 @@ sequence = [
 
 `interval_seconds = 900` の場合、15分ごとに次の profile へ移る。切替境界はプロセス起動時刻ではなく、固定 epoch と現在時刻から算出する。ReversSSH を再起動してもローテーション周期はずれない。
 
+各 profile は対話用の `default_backend` と、認証失敗を観測する `credential_backend` を持つ。現在の3 profile はすべて `credential_backend = "heralding"` とし、将来 Cowrie 単体で運用する場合は `credential_backend = "cowrie"` に変更する。認証成功は profile の interaction backend に接続し、認証失敗は credential backend に転送する。
+
 最初から interval と時刻表の両方を実装せず、固定間隔を先に実装する。収集実験の再現性を優先するためである。将来、時刻表が必要になった場合は `start`、`end`、`profile` を持つ windows 形式を追加する。
 
 ## 6. セッションのライフサイクル
