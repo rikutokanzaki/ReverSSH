@@ -21,6 +21,12 @@ pub struct AppConfig {
 #[derive(Debug, Deserialize, Default)]
 pub struct RoutingConfig {
     #[serde(default)]
+    pub schedule: Option<ScheduleConfig>,
+
+    #[serde(default)]
+    pub profiles: Vec<RoutingProfileConfig>,
+
+    #[serde(default)]
     pub rules: Vec<RoutingRuleConfig>,
 
     #[serde(default)]
@@ -45,7 +51,7 @@ pub struct RoutingRuleConfig {
     pub auth: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CommandRuleConfig {
     pub name: String,
@@ -56,6 +62,27 @@ pub struct CommandRuleConfig {
 
     #[serde(default)]
     pub keywords: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ScheduleConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_schedule_timezone")]
+    pub timezone: String,
+
+    pub interval_seconds: u64,
+    pub sequence: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RoutingProfileConfig {
+    pub name: String,
+    pub default_backend: String,
+
+    #[serde(default)]
+    pub command: Vec<CommandRuleConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,4 +200,8 @@ fn default_history_size() -> usize {
 
 fn default_user_db_path() -> PathBuf {
     PathBuf::from("/config/user.txt")
+}
+
+fn default_schedule_timezone() -> String {
+    "UTC".to_string()
 }

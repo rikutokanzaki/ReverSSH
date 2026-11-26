@@ -17,6 +17,7 @@ use client::pool::ClientPool;
 use config::{AppConfig, load_config, validate_config};
 use proxy::factory::ProxyServerFactory;
 use proxy::host_key::load_or_generate_host_key;
+use router::mode::ModeResolver;
 use router::rules::build_detector;
 use session::manager::SessionManager;
 
@@ -37,6 +38,7 @@ pub async fn run_with_config(config: AppConfig) -> Result<()> {
     ));
 
     let detector = build_detector(&config.routing)?;
+    let mode_resolver = Arc::new(ModeResolver::new(&config.routing)?);
 
     let mut ssh_config = SshConfig {
         inactivity_timeout: Some(Duration::from_secs(3600)),
@@ -56,6 +58,7 @@ pub async fn run_with_config(config: AppConfig) -> Result<()> {
         session_manager.clone(),
         client_pool,
         detector,
+        mode_resolver,
     );
 
     let ssh_config = Arc::new(ssh_config);

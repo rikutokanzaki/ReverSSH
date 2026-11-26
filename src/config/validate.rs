@@ -1,9 +1,11 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use std::collections::HashSet;
 
 use crate::config::{AppConfig, AuthType, BackendType};
 
 pub fn validate_config(config: &AppConfig) -> Result<()> {
+    validate_profiles(config)?;
+
     let interaction_defaults = config
         .backends
         .iter()
@@ -103,6 +105,82 @@ pub fn validate_config(config: &AppConfig) -> Result<()> {
                 from,
                 to
             )
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_profiles(config: &AppConfig) -> Result<()> {
+    let backend_names: HashSet<&str> = config.backends.iter().map(|b| b.name.as_str()).collect();
+    let profile_names: HashSet<&str> = config
+        .routing
+        .profiles
+        .iter()
+        .map(|profile| profile.name.as_str())
+        .collect();
+
+    if profile_names.len() != config.routing.profiles.len() {
+        bail!("duplicate routing profile name defined");
+    }
+
+    for profile in &config.routing.profiles {
+        let backend = config
+            .backends
+            .iter()
+            .find(|backend| backend.name == profile.default_backend)
+            .with_context(|| {
+                format!(
+                    "routing profile '{}' targets unknown default backend '{}'",
+                    profile.name, profile.default_backend
+                )
+            })?;
+        if backend.backend_type != BackendType::Interaction {
+            bail!(
+                "routing profile '{}' default backend '{}' must be an interaction backend",
+                profile.name,
+                profile.default_backend
+            );
+        }
+
+        for rule in &profile.command {
+            if !backend_names.contains(rule.backend.as_str()) {
+                bail!(
+                    "profile command rule '{}' targets unknown backend '{}'",
+                    rule.name,
+                    rule.backend
+                );
+            }
+            if config
+                .backends
+                .iter()
+                .find(|backend| backend.name == rule.backend)
+                .is_some_and(|backend| backend.backend_type == BackendType::Credential)
+            {
+                bail!(
+                    "profile command rule '{}' targets credential backend '{}'",
+                    rule.name,
+                    rule.backend
+                );
+            }
+            validate_rule_conditions(&rule.name, &rule.regex, &rule.keywords, &[])?;
+        }
+    }
+
+    if let Some(schedule) = &config.routing.schedule {
+        if schedule.interval_seconds == 0 {
+            bail!("schedule interval_seconds must be greater than zero");
+        }
+        if schedule.sequence.is_empty() {
+            bail!("schedule sequence must not be empty");
+        }
+        if !matches!(schedule.timezone.as_str(), "UTC" | "Asia/Tokyo") {
+            bail!("unsupported schedule timezone '{}'", schedule.timezone);
+        }
+        for profile in &schedule.sequence {
+            if !profile_names.contains(profile.as_str()) {
+                bail!("schedule references unknown profile '{profile}'");
+            }
         }
     }
 

@@ -15,3 +15,32 @@ name = "example-command"
 backend = "cowrie2"
 regex = ["(?i)^uname(?:\\s+-[a-z]+)?$"]
 keywords = ["whoami"]
+
+# Optional time-based profiles. When omitted, the legacy routing rules above
+# remain active and no time-based switching is performed.
+[schedule]
+enabled = false
+timezone = "Asia/Tokyo"
+interval_seconds = 900
+sequence = [
+    "heralding-cowrie",
+    "heralding-beelzebub",
+    "heralding-cowrie-beelzebub",
+]
+
+[[profiles]]
+name = "heralding-cowrie"
+default_backend = "cowrie1"
+
+[[profiles]]
+name = "heralding-beelzebub"
+default_backend = "cowrie2"
+
+[[profiles]]
+name = "heralding-cowrie-beelzebub"
+default_backend = "cowrie1"
+
+[[profiles.command]]
+name = "beelzebub-switch"
+backend = "cowrie2"
+regex = ["(?i)^beelzebub$"]

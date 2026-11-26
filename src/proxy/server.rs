@@ -36,6 +36,7 @@ pub struct ProxyServer {
     pub(super) exec_mode: bool,
     pub(super) reader: LineReader,
     pub(super) renderer: Renderer,
+    pub(super) session_profile: Option<String>,
 }
 
 #[derive(Copy, Clone)]
@@ -70,6 +71,7 @@ impl ProxyServer {
             exec_mode: false,
             reader: LineReader::new(context.config.server.history_size),
             renderer,
+            session_profile: None,
         }
     }
 }
@@ -531,7 +533,16 @@ impl ProxyServer {
             return Ok(backend);
         }
 
-        let preferred_backend = self.authenticated_backend.take();
+        let scheduled_backend =
+            self.context
+                .mode_resolver
+                .current_profile_name()
+                .and_then(|profile| {
+                    let backend = self.context.mode_resolver.default_backend(&profile)?;
+                    self.session_profile = Some(profile);
+                    Some(backend.to_string())
+                });
+        let preferred_backend = self.authenticated_backend.take().or(scheduled_backend);
         let (backend, initial_cwd) = self
             .context
             .client_pool
@@ -549,7 +560,12 @@ impl ProxyServer {
 
         self.initialize_session_cwd(session_id, initial_cwd).await;
 
-        info!("Backend connection established for session {}", session_id);
+        info!(
+            "Backend connection established for session {} backend={} profile={}",
+            session_id,
+            backend.name,
+            self.session_profile.as_deref().unwrap_or("legacy")
+        );
         Ok(backend)
     }
 
@@ -684,11 +700,20 @@ impl ProxyServer {
     }
 
     fn resolve_migration_target(&self, command_info: &CmdInfo) -> Option<String> {
-        let detected_backend = self.context.detector.detect(
-            command_info,
-            self.get_username(),
-            self.password.as_deref().unwrap_or(""),
-        )?;
+        let detected_backend = if let Some(profile) = &self.session_profile {
+            self.context.mode_resolver.detect(
+                profile,
+                command_info,
+                self.get_username(),
+                self.password.as_deref().unwrap_or(""),
+            )?
+        } else {
+            self.context.detector.detect(
+                command_info,
+                self.get_username(),
+                self.password.as_deref().unwrap_or(""),
+            )?
+        };
 
         Some(
             self.context
@@ -780,6 +805,17 @@ impl ProxyServer {
 
         self.session_id = Some(session_id.clone());
         self.session_created = true;
+
+        if self.session_profile.is_none() {
+            self.session_profile = self.context.mode_resolver.current_profile_name();
+        }
+
+        if let Some(profile) = self.session_profile.as_deref() {
+            info!(
+                "[MODE] session_id={} profile={} reason=schedule",
+                session_id, profile
+            );
+        }
 
         match mode {
             CommandExecutionMode::Shell => {

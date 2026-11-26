@@ -11,6 +11,7 @@ use crate::proxy::context::ProxyContext;
 use crate::proxy::motd::return_motd;
 use crate::proxy::server::ProxyServer;
 use crate::router::migration::Detector;
+use crate::router::mode::ModeResolver;
 use crate::session::manager::SessionManager;
 
 pub struct ProxyServerFactory {
@@ -26,6 +27,7 @@ impl ProxyServerFactory {
         session_manager: Arc<SessionManager>,
         client_pool: Arc<ClientPool>,
         detector: Arc<dyn Detector>,
+        mode_resolver: Arc<ModeResolver>,
     ) -> Self {
         let accept_any = config.auth.accept_any;
         let primary = config.auth.user_db_path.clone();
@@ -56,6 +58,7 @@ impl ProxyServerFactory {
                 session_manager,
                 client_pool,
                 detector,
+                mode_resolver,
             )),
             accept_any,
             authenticator,
