@@ -49,6 +49,8 @@ pub struct Client {
 }
 
 impl Client {
+    const CWD_QUERY: &'static str = "printf '__BLOSSOM_CWD__%s\\n' \"$PWD\"";
+
     pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
         let ssh_config = russh_client::Config::default();
 
@@ -115,7 +117,8 @@ impl Client {
 
         drop(handle);
 
-        let initial_cwd = self.wait_for_initial_prompt(&mut channel).await?;
+        self.wait_for_initial_prompt(&mut channel).await?;
+        let initial_cwd = self.query_cwd(&mut channel).await?;
 
         let mut channel_lock = self.channel.lock().await;
         *channel_lock = Some(channel);
@@ -123,10 +126,7 @@ impl Client {
         Ok(initial_cwd)
     }
 
-    async fn wait_for_initial_prompt(
-        &self,
-        channel: &mut Channel<ClientMsg>,
-    ) -> Result<Option<String>> {
+    async fn wait_for_initial_prompt(&self, channel: &mut Channel<ClientMsg>) -> Result<()> {
         let mut buffer = Vec::new();
         let timeout_duration = Duration::from_secs(10);
 
@@ -138,8 +138,7 @@ impl Client {
 
                         if TerminalOutputParser::is_prompt(&buffer) {
                             info!("Initial prompt received from backend: {}", self.name);
-                            let cwd = TerminalOutputParser::extract_cwd_from_output(&buffer);
-                            return Ok(cwd);
+                            return Ok(());
                         }
                     }
                     ChannelMsg::Eof => {
@@ -157,6 +156,31 @@ impl Client {
                 Err(_) => {
                     return Err(anyhow::anyhow!("Timeout waiting for initial prompt"));
                 }
+            }
+        }
+    }
+
+    async fn query_cwd(&self, channel: &mut Channel<ClientMsg>) -> Result<Option<String>> {
+        channel
+            .data(format!("{}\n", Self::CWD_QUERY).as_bytes())
+            .await
+            .context("Failed to query backend CWD")?;
+
+        let mut output = Vec::new();
+        let timeout_duration = Duration::from_secs(10);
+
+        loop {
+            match timeout(timeout_duration, channel.wait()).await {
+                Ok(Some(ChannelMsg::Data { ref data })) => {
+                    output.extend_from_slice(data);
+                    if TerminalOutputParser::is_prompt(&output) {
+                        return Ok(TerminalOutputParser::extract_cwd_marker(&output));
+                    }
+                }
+                Ok(Some(ChannelMsg::Eof)) => return Ok(None),
+                Ok(Some(_)) => {}
+                Ok(None) => return Ok(None),
+                Err(_) => return Ok(None),
             }
         }
     }
@@ -224,9 +248,8 @@ impl Client {
             }
         }
 
+        let cwd = self.query_cwd(channel).await?;
         drop(channel_lock);
-
-        let cwd = TerminalOutputParser::extract_cwd_from_output(&output);
         let raw_output = output;
         let displayed_output = TerminalOutputParser::clean_output(&raw_output, cmd);
 

@@ -9,6 +9,8 @@ lazy_static! {
 }
 
 impl TerminalOutputParser {
+    pub(crate) const CWD_MARKER: &'static str = "__BLOSSOM_CWD__";
+
     pub(crate) fn is_prompt(data: &[u8]) -> bool {
         if let Ok(text) = std::str::from_utf8(data) {
             let ansi_stripped = ANSI_ESCAPE_RE.replace_all(text, "");
@@ -22,22 +24,15 @@ impl TerminalOutputParser {
         false
     }
 
-    pub(crate) fn extract_cwd_from_output(data: &[u8]) -> Option<String> {
+    pub(crate) fn extract_cwd_marker(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
-        let last_line = ansi_stripped
-            .lines()
-            .rfind(|line| !line.trim().is_empty())?
-            .trim_end();
-        let prompt_end = last_line
-            .char_indices()
-            .rfind(|(_, c)| *c == '$' || *c == '#')
-            .map(|(index, _)| index)?;
-        let prompt = &last_line[..prompt_end];
-        let colon = prompt.rfind(':')?;
-        let cwd = prompt[colon + 1..].trim();
 
-        (!cwd.is_empty()).then(|| cwd.to_string())
+        ansi_stripped.lines().find_map(|line| {
+            let value = line.trim();
+            let cwd = value.strip_prefix(Self::CWD_MARKER)?;
+            (!cwd.is_empty() && cwd.starts_with('/')).then(|| cwd.to_string())
+        })
     }
 
     pub(crate) fn clean_output(data: &[u8], cmd: &str) -> Vec<u8> {
@@ -119,10 +114,20 @@ mod tests {
     }
 
     #[test]
-    fn extracts_cwd_from_hosts_with_dots() {
+    fn extracts_cwd_from_explicit_marker() {
         assert_eq!(
-            TerminalOutputParser::extract_cwd_from_output(b"cd /tmp\r\nalice@host.example:/tmp$"),
-            Some("/tmp".to_string())
+            TerminalOutputParser::extract_cwd_marker(
+                b"printf output\n__BLOSSOM_CWD__/a/b/c/d\nroot@host:/a/b/c/d$ "
+            ),
+            Some("/a/b/c/d".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_prompt_when_extracting_cwd_marker() {
+        assert_eq!(
+            TerminalOutputParser::extract_cwd_marker(b"root@host:/wrong/path$ "),
+            None
         );
     }
 }
