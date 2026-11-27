@@ -173,8 +173,13 @@ impl Client {
             match timeout(timeout_duration, channel.wait()).await {
                 Ok(Some(ChannelMsg::Data { ref data })) => {
                     output.extend_from_slice(data);
+
+                    if let Some(cwd) = TerminalOutputParser::extract_pwd_output(&output) {
+                        return Ok(Some(cwd));
+                    }
+
                     if TerminalOutputParser::is_prompt(&output) {
-                        return Ok(TerminalOutputParser::extract_pwd_output(&output));
+                        return Ok(None);
                     }
                 }
                 Ok(Some(ChannelMsg::Eof)) => return Ok(None),
