@@ -9,8 +9,6 @@ lazy_static! {
 }
 
 impl TerminalOutputParser {
-    pub(crate) const CWD_MARKER: &'static str = "__BLOSSOM_CWD__";
-
     pub(crate) fn is_prompt(data: &[u8]) -> bool {
         if let Ok(text) = std::str::from_utf8(data) {
             let ansi_stripped = ANSI_ESCAPE_RE.replace_all(text, "");
@@ -24,14 +22,13 @@ impl TerminalOutputParser {
         false
     }
 
-    pub(crate) fn extract_cwd_marker(data: &[u8]) -> Option<String> {
+    pub(crate) fn extract_pwd_output(data: &[u8]) -> Option<String> {
         let text = String::from_utf8_lossy(data);
         let ansi_stripped = ANSI_ESCAPE_RE.replace_all(&text, "");
 
-        ansi_stripped.lines().find_map(|line| {
+        ansi_stripped.lines().rev().find_map(|line| {
             let value = line.trim();
-            let cwd = value.strip_prefix(Self::CWD_MARKER)?;
-            (!cwd.is_empty() && cwd.starts_with('/')).then(|| cwd.to_string())
+            (value.starts_with('/') && !value.contains(['\r', '\n'])).then(|| value.to_string())
         })
     }
 
@@ -114,19 +111,17 @@ mod tests {
     }
 
     #[test]
-    fn extracts_cwd_from_explicit_marker() {
+    fn extracts_cwd_from_pwd_output() {
         assert_eq!(
-            TerminalOutputParser::extract_cwd_marker(
-                b"printf output\n__BLOSSOM_CWD__/a/b/c/d\nroot@host:/a/b/c/d$ "
-            ),
+            TerminalOutputParser::extract_pwd_output(b"pwd -P\n/a/b/c/d\nroot@host:/a/b/c/d$ "),
             Some("/a/b/c/d".to_string())
         );
     }
 
     #[test]
-    fn ignores_prompt_when_extracting_cwd_marker() {
+    fn ignores_prompt_when_extracting_pwd_output() {
         assert_eq!(
-            TerminalOutputParser::extract_cwd_marker(b"root@host:/wrong/path$ "),
+            TerminalOutputParser::extract_pwd_output(b"root@host:/wrong/path$ "),
             None
         );
     }

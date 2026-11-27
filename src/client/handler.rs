@@ -49,7 +49,7 @@ pub struct Client {
 }
 
 impl Client {
-    const CWD_QUERY: &'static str = "printf '__BLOSSOM_CWD__%s\\n' \"$PWD\"";
+    const CWD_QUERY: &'static str = "pwd -P";
 
     pub async fn connect(config: BackendConfig, username: &str, password: &str) -> Result<Self> {
         let ssh_config = russh_client::Config::default();
@@ -174,7 +174,7 @@ impl Client {
                 Ok(Some(ChannelMsg::Data { ref data })) => {
                     output.extend_from_slice(data);
                     if TerminalOutputParser::is_prompt(&output) {
-                        return Ok(TerminalOutputParser::extract_cwd_marker(&output));
+                        return Ok(TerminalOutputParser::extract_pwd_output(&output));
                     }
                 }
                 Ok(Some(ChannelMsg::Eof)) => return Ok(None),
